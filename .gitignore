@@ -1,0 +1,12 @@
+# 二进制与数据库文件
+bin/
+*.exe
+*.db
+*.db.lock
+
+# 本地配置
+config.json
+
+# IDE
+.idea/
+.vscode/
