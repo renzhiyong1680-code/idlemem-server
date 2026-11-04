@@ -1,0 +1,8 @@
+# 强制 LF 行尾：部署脚本与 systemd 单元必须在 Linux 上原样可用
+*.sh      text eol=lf
+*.service text eol=lf
+*.go      text eol=lf
+*.md      text eol=lf
+*.json    text eol=lf
+*.mod     text eol=lf
+*.sum     text eol=lf
