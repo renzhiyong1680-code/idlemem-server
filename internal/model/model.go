@@ -29,6 +29,7 @@ type Node struct {
 	TotalBytes    uint64    `json:"total_bytes"`     // 本机物理内存
 	Score         float64   `json:"score"`           // 信誉分
 	HeartbeatCnt  uint64    `json:"heartbeat_cnt"`   // 连续心跳次数
+	KVAddr        string    `json:"kv_addr"`         // 节点 KV 服务监听地址（网关转发用）
 	LastSeen      time.Time `json:"last_seen"`
 	FirstSeen     time.Time `json:"first_seen"`
 }

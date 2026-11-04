@@ -2,6 +2,8 @@
 package api
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"log"
 	"net"
@@ -147,6 +149,10 @@ func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
 		Token:      req.Token,
 		QuotaBytes: req.QuotaBytes,
 		CreatedAt:  time.Now(),
+	}
+	// Token 未提供时自动生成，保证企业客户可立即 AUTH 接入。
+	if t.Token == "" {
+		t.Token = randomToken()
 	}
 	if err := s.store.UpsertTenant(t); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -301,4 +307,14 @@ func writeError(w http.ResponseWriter, code int, msg string) {
 func newID() string {
 	return "id-" + time.Now().Format("20060102150405") + "-" +
 		strings.ReplaceAll(time.Now().Format("15.04.05.000000000"), ".", "")
+}
+
+// randomToken 生成 16 字节随机 token（hex 32 字符）。
+func randomToken() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// 极低概率失败时退化为时间戳 token。
+		return newID()
+	}
+	return hex.EncodeToString(b)
 }

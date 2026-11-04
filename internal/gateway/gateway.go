@@ -182,6 +182,16 @@ func (g *Gateway) handleSet(conn redcon.Conn, args []string) {
 		conn.WriteError("ERR " + err.Error())
 		return
 	}
+
+	// 数据面：转发到在线承载节点（多副本写入）。
+	nodes, err := g.onlineShardNodes(t.ID)
+	if err != nil {
+		g.logger.Printf("gateway: route nodes: %v", err)
+	} else if len(nodes) > 0 {
+		if _, ferr := g.forwardSet(nodes, nsKey, value, int64(ttl.Seconds())); ferr != nil {
+			g.logger.Printf("gateway: forward set %q: %v (local cache kept)", nsKey, ferr)
+		}
+	}
 	conn.WriteString("OK")
 }
 
@@ -206,11 +216,20 @@ func (g *Gateway) handleGet(conn redcon.Conn, args []string) {
 		}
 		return nil
 	})
-	if !found {
-		conn.WriteNull()
+	if found {
+		conn.WriteBulkString(val)
 		return
 	}
-	conn.WriteBulkString(val)
+
+	// 本地未命中，尝试从节点读取（读任一在线承载节点）。
+	nodes, err := g.onlineShardNodes(t.ID)
+	if err == nil && len(nodes) > 0 {
+		if v, ok := g.forwardGet(nodes, nsKey); ok {
+			conn.WriteBulk(v)
+			return
+		}
+	}
+	conn.WriteNull()
 }
 
 func (g *Gateway) handleDel(conn redcon.Conn, args []string) {
@@ -232,6 +251,14 @@ func (g *Gateway) handleDel(conn redcon.Conn, args []string) {
 		}
 		return nil
 	})
+	nodes, err := g.onlineShardNodes(t.ID)
+	if err == nil && len(nodes) > 0 {
+		for _, k := range args[1:] {
+			if _, ferr := g.forwardDel(nodes, namespaceKey(t, k)); ferr != nil {
+				g.logger.Printf("gateway: forward del %q: %v", k, ferr)
+			}
+		}
+	}
 	conn.WriteInt(count)
 }
 
@@ -266,6 +293,12 @@ func (g *Gateway) handleExpire(conn redcon.Conn, args []string) {
 		}
 		return nil
 	})
+	nodes, err := g.onlineShardNodes(t.ID)
+	if err == nil && len(nodes) > 0 && sec > 0 {
+		if _, ferr := g.forwardExpire(nodes, nsKey, sec); ferr != nil {
+			g.logger.Printf("gateway: forward expire %q: %v", nsKey, ferr)
+		}
+	}
 	if ok {
 		conn.WriteInt(1)
 	} else {
@@ -300,6 +333,15 @@ func (g *Gateway) handleTTL(conn redcon.Conn, args []string) {
 		ttlSeconds = int64(ttl.Seconds())
 		return nil
 	})
+	// 本地无记录时询问节点。
+	if ttlSeconds == -2 {
+		nodes, err := g.onlineShardNodes(t.ID)
+		if err == nil && len(nodes) > 0 {
+			if v, ok := g.forwardTTL(nodes, nsKey); ok {
+				ttlSeconds = v
+			}
+		}
+	}
 	conn.WriteInt(int(ttlSeconds))
 }
 

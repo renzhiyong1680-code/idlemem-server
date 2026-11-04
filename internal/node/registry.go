@@ -86,6 +86,7 @@ func (r *Registry) Heartbeat(snap heartbeat.Snapshot, ip string) (*model.Node, e
 	n.UsedBytes = snap.UsedBytes
 	n.SystemUsedPct = snap.SystemUsedPct
 	n.TotalBytes = snap.TotalBytes
+	n.KVAddr = snap.KVAddr
 	n.HeartbeatCnt++
 
 	switch snap.Status {
