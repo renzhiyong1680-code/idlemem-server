@@ -1,0 +1,24 @@
+{
+  "_comment": "闲存云服务端（idlemem-server）生产配置模板。JSON 不支持注释，本文件所有 _comment 字段仅作说明，服务端解析时自动忽略未知字段。时长字段为纳秒整数：30s=30000000000，24h=86400000000000",
+
+  "api_addr": ":8080",
+  "_comment2": "REST 管理 API 监听地址；云主机建议仅内网访问，或经反向代理/防火墙放行",
+
+  "gateway_addr": ":6379",
+  "_comment3": "Redis 协议网关监听地址，企业客户经此接入（AUTH 租户 Token）",
+
+  "db_path": "/var/lib/xiancun/idlemem-server.db",
+  "_comment4": "持久化数据库文件路径，请确保运行用户对该目录有读写权限",
+
+  "heartbeat_timeout": 30000000000,
+  "_comment5": "心跳超时（30s）：超过未上报判定节点离线",
+
+  "heartbeat_evict_after": 86400000000000,
+  "_comment6": "离线节点剔除周期（24h）：离线超过该时长从调度池回收",
+
+  "default_replicas": 1,
+  "_comment7": "默认分片副本数：>1 时同一 key 会转发写入多台节点，提高可用性",
+
+  "default_ttl": 0,
+  "_comment8": "网关 KV 默认 TTL（0=不过期）；可缓存平台请按业务设置默认过期时间"
+}

@@ -1,0 +1,29 @@
+# 闲存云调度控制面 systemd 单元
+# 安装位置：/etc/systemd/system/xiancun-server.service
+# 配合 deploy/install-server.sh 使用；也可手动安装：
+#   cp xiancun-server.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now xiancun-server
+
+[Unit]
+Description=XianCun Cloud - idlemem-server (control plane)
+Documentation=https://github.com/xiancuncloud/idlemem-server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xiancun
+Group=xiancun
+# 工作目录：存放数据库文件的目录（与 config.json 中 db_path 保持一致）
+WorkingDirectory=/var/lib/xiancun
+ExecStart=/usr/local/bin/xiancun-server -config /etc/xiancun/server-config.json
+Restart=always
+RestartSec=5
+# 打开文件数上限：连接数较大（企业客户多/节点多）时建议调高
+LimitNOFILE=65535
+# 输出交给 journald：journalctl -u xiancun-server -f
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

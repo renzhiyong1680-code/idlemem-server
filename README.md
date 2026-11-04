@@ -188,6 +188,16 @@ idlemem-server/
 └── go.mod
 ```
 
+## 部署
+
+云主机（Linux/systemd）一键部署见 [`deploy/`](deploy/)：
+
+```bash
+sudo ./deploy/install-server.sh --binary ./bin/idlemem-server
+```
+
+包含 systemd 单元、生产配置模板与部署/卸载说明。
+
 ## 开发
 
 ```bash
