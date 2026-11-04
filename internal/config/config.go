@@ -24,6 +24,8 @@ type Config struct {
 	DefaultReplicas int `json:"default_replicas"`
 	// DefaultTTL 网关 KV 默认过期时间（0 表示不过期）。
 	DefaultTTL time.Duration `json:"default_ttl"`
+	// MeterInterval 计量采样周期（0 表示关闭计量）。
+	MeterInterval time.Duration `json:"meter_interval"`
 }
 
 // Default 返回适用于本地开发/小规模内测的默认配置。
@@ -36,6 +38,7 @@ func Default() Config {
 		HeartbeatEvictAfter: 24 * time.Hour,
 		DefaultReplicas:    1,
 		DefaultTTL:         0,
+		MeterInterval:      60 * time.Second,
 	}
 }
 

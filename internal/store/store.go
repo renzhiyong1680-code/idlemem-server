@@ -20,6 +20,7 @@ const (
 	nsTenant = "tenant:"
 	nsOrder  = "order:"
 	nsShard  = "shard:"
+	nsUsage  = "usage:"
 )
 
 // Store 控制面持久化存储。
@@ -333,4 +334,60 @@ func (s *Store) UpdateShardNode(shardID, newNodeID string, st model.ShardStatus)
 	sh.Status = st
 	sh.AssignedAt = time.Now()
 	return s.UpsertShard(sh)
+}
+
+// ---------- 计量（GB·h） ----------
+
+// UpsertUsage 写入或更新计量记录。
+func (s *Store) UpsertUsage(r *model.UsageRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	raw, err := encode(r)
+	if err != nil {
+		return err
+	}
+	return s.db.Update(func(tx *buntdb.Tx) error {
+		_, _, err := tx.Set(nsUsage+string(r.Scope)+":"+r.ID, raw, nil)
+		return err
+	})
+}
+
+// GetUsage 读取计量记录；不存在时返回 nil。
+func (s *Store) GetUsage(scope model.UsageScope, id string) (*model.UsageRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out *model.UsageRecord
+	err := s.db.View(func(tx *buntdb.Tx) error {
+		raw, err := tx.Get(nsUsage + string(scope) + ":" + id)
+		if err == buntdb.ErrNotFound {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		r, derr := decode[model.UsageRecord](raw)
+		if derr != nil {
+			return derr
+		}
+		out = &r
+		return nil
+	})
+	return out, err
+}
+
+// ListUsage 返回某范围内的全部计量记录（按 ID 排序）。
+func (s *Store) ListUsage(scope model.UsageScope) ([]*model.UsageRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []*model.UsageRecord
+	err := s.db.View(func(tx *buntdb.Tx) error {
+		return tx.AscendKeys(nsUsage+string(scope)+":*", func(k, v string) bool {
+			r, err := decode[model.UsageRecord](v)
+			if err == nil {
+				out = append(out, &r)
+			}
+			return true
+		})
+	})
+	return out, err
 }

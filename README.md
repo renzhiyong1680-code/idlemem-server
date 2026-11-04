@@ -131,6 +131,8 @@ OK
 | POST | `/api/v1/orders` | 创建订单并分配分片（无可用节点返回 503） |
 | GET | `/api/v1/orders` | 订单列表 |
 | GET | `/api/v1/shard` | 分片列表 |
+| GET | `/api/v1/usage/nodes` | 节点维度 GB·h 计量（供给结算依据） |
+| GET | `/api/v1/usage/tenants` | 租户维度 GB·h 计量（客户计费依据） |
 | GET | `/api/v1/summary` | 平台概览（节点/容量/订单/分片统计） |
 | GET | `/healthz` | 健康检查 |
 
@@ -145,6 +147,7 @@ OK
 | `heartbeat_evict_after` | `24h` | 离线节点清理周期 |
 | `default_replicas` | `1` | 默认分片副本数 |
 | `default_ttl` | `0` | 网关 KV 默认 TTL（0=不过期） |
+| `meter_interval` | `60s` | GB·h 计量采样周期（0=关闭计量） |
 
 配置文件示例 `config.json`：
 
@@ -156,7 +159,8 @@ OK
   "heartbeat_timeout": 30000000000,
   "heartbeat_evict_after": 86400000000000,
   "default_replicas": 1,
-  "default_ttl": 0
+  "default_ttl": 0,
+  "meter_interval": 60000000000
 }
 ```
 
@@ -172,17 +176,36 @@ OK
   3. 无可用替换节点 → 分片置为 `lost`；
   4. 离线超过 `evict_after` → 节点回收。
 
+## GB·h 计量（计费/结算）
+
+后台按 `meter_interval`（默认 60s）周期采样并累计 **GB·h**（1 GB 保持 1 小时）：
+
+- **节点维度**：在线节点的可贡献容量 × 在线时长 → 供给者结算依据；
+- **租户维度**：活跃分片容量 × 时长 → 企业客户计费依据；
+- 查询：`GET /api/v1/usage/nodes`、`GET /api/v1/usage/tenants`。
+
+商业口径示例（见《闲存云商业计划书》）：
+
+| 角色 | 单价（元/GB·h） | 计量来源 |
+|---|---|---|
+| 企业客户 | 0.0004 | `usage/tenants` |
+| 供给者结算 | 0.00032 | `usage/nodes` |
+| 平台佣金 | 0.00008（≈20%） | 差值 |
+
+计量记录持久化于 `idlemem-server.db`（`usage:*` 键空间），进程重启不丢失。
+
 ## 目录结构
 
 ```
 idlemem-server/
-├── cmd/server/            # 主入口（装配 + 后台扫描循环）
+├── cmd/server/            # 主入口（装配 + 后台扫描循环 + 计量）
 ├── internal/
 │   ├── config/            # 配置加载
-│   ├── model/             # 数据模型（节点/租户/订单/分片）
+│   ├── model/             # 数据模型（节点/租户/订单/分片/计量）
 │   ├── store/             # buntdb 持久化层
 │   ├── node/              # 节点注册表（注册/心跳/超时判定/清扫）
 │   ├── scheduler/         # 调度器（打分/分配/自愈）
+│   ├── meter/             # GB·h 计量（周期采样累加，计费/结算依据）
 │   ├── api/               # REST 管理 API
 │   └── gateway/           # Redis 协议网关（redcon）+ 节点转发（forward.go）
 └── go.mod

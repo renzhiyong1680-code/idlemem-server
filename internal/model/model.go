@@ -84,3 +84,22 @@ type Shard struct {
 	Status    ShardStatus `json:"status"`
 	AssignedAt time.Time  `json:"assigned_at"`
 }
+
+// UsageScope 计量对象范围。
+type UsageScope string
+
+const (
+	// UsageScopeNode 节点维度：按节点在线可贡献容量 × 时长累计。
+	UsageScopeNode UsageScope = "node"
+	// UsageScopeTenant 租户维度：按租户活跃分片容量 × 时长累计（计费依据）。
+	UsageScopeTenant UsageScope = "tenant"
+)
+
+// UsageRecord 计量累计记录（GB·h）。
+// 供计费使用：如售价 0.0004 元/GB·h，则费用 = GBHours × 单价。
+type UsageRecord struct {
+	Scope     UsageScope `json:"scope"`
+	ID        string     `json:"id"`         // 节点 ID 或租户 ID
+	GBHours   float64    `json:"gb_hours"`   // 累计 GB·h
+	UpdatedAt time.Time  `json:"updated_at"` // 最近一次采样时间
+}

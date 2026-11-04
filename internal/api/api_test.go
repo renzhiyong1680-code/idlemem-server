@@ -28,7 +28,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 
 	reg := node.New(st, 30*time.Second, time.Hour)
 	sch := scheduler.New(st, reg, 1)
-	srv := New(st, reg, sch, log.New(io.Discard, "", 0))
+	srv := New(st, reg, sch, nil, log.New(io.Discard, "", 0))
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts

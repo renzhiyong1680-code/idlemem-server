@@ -13,6 +13,7 @@ import (
 
 	"github.com/xiancuncloud/idlemem-core/heartbeat"
 
+	"github.com/xiancuncloud/idlemem-server/internal/meter"
 	"github.com/xiancuncloud/idlemem-server/internal/model"
 	"github.com/xiancuncloud/idlemem-server/internal/node"
 	"github.com/xiancuncloud/idlemem-server/internal/scheduler"
@@ -24,16 +25,18 @@ type Server struct {
 	store     *store.Store
 	registry  *node.Registry
 	scheduler *scheduler.Scheduler
+	meter     *meter.Meter
 	mux       *http.ServeMux
 	logger    *log.Logger
 }
 
 // New 创建 API 服务。
-func New(s *store.Store, reg *node.Registry, sch *scheduler.Scheduler, logger *log.Logger) *Server {
+func New(s *store.Store, reg *node.Registry, sch *scheduler.Scheduler, mtr *meter.Meter, logger *log.Logger) *Server {
 	srv := &Server{
 		store:     s,
 		registry:  reg,
 		scheduler: sch,
+		meter:     mtr,
 		logger:    logger,
 		mux:       http.NewServeMux(),
 	}
@@ -57,6 +60,10 @@ func (s *Server) routes() {
 
 	// 分片查询
 	s.mux.HandleFunc("GET /api/v1/shard", s.handleListShards)
+
+	// 计量（GB·h，计费依据）
+	s.mux.HandleFunc("GET /api/v1/usage/nodes", s.handleUsageNodes)
+	s.mux.HandleFunc("GET /api/v1/usage/tenants", s.handleUsageTenants)
 
 	// 健康检查与概览
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -277,6 +284,42 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------- 工具 ----------
+
+// ---------- 计量 ----------
+
+// handleUsageNodes 返回节点维度 GB·h 计量（供给结算依据）。
+func (s *Server) handleUsageNodes(w http.ResponseWriter, r *http.Request) {
+	if s.meter == nil {
+		writeError(w, http.StatusServiceUnavailable, "metering not enabled")
+		return
+	}
+	recs, err := s.meter.Snapshot(model.UsageScopeNode)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if recs == nil {
+		recs = []*model.UsageRecord{}
+	}
+	writeJSON(w, http.StatusOK, recs)
+}
+
+// handleUsageTenants 返回租户维度 GB·h 计量（客户计费依据）。
+func (s *Server) handleUsageTenants(w http.ResponseWriter, r *http.Request) {
+	if s.meter == nil {
+		writeError(w, http.StatusServiceUnavailable, "metering not enabled")
+		return
+	}
+	recs, err := s.meter.Snapshot(model.UsageScopeTenant)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if recs == nil {
+		recs = []*model.UsageRecord{}
+	}
+	writeJSON(w, http.StatusOK, recs)
+}
 
 func clientIP(r *http.Request) string {
 	// 优先 X-Forwarded-For / X-Real-IP（反代场景），否则取远端地址。

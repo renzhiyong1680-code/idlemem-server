@@ -21,6 +21,7 @@ import (
 	"github.com/xiancuncloud/idlemem-server/internal/api"
 	"github.com/xiancuncloud/idlemem-server/internal/config"
 	"github.com/xiancuncloud/idlemem-server/internal/gateway"
+	"github.com/xiancuncloud/idlemem-server/internal/meter"
 	"github.com/xiancuncloud/idlemem-server/internal/node"
 	"github.com/xiancuncloud/idlemem-server/internal/scheduler"
 	"github.com/xiancuncloud/idlemem-server/internal/store"
@@ -48,9 +49,11 @@ func main() {
 	reg := node.New(st, cfg.HeartbeatTimeout, cfg.HeartbeatEvictAfter)
 	// 调度器。
 	sch := scheduler.New(st, reg, cfg.DefaultReplicas)
+	// 计量器（GB·h，计费/结算依据）。
+	mtr := meter.New(st, cfg.MeterInterval, logger)
 
 	// REST API。
-	apiSrv := api.New(st, reg, sch, logger)
+	apiSrv := api.New(st, reg, sch, mtr, logger)
 	httpSrv := &http.Server{
 		Addr:    cfg.APIAddr,
 		Handler: apiSrv.Handler(),
@@ -69,6 +72,13 @@ func main() {
 
 	// 启动后台扫描：节点超时清扫 + 分片自愈。
 	go backgroundLoop(ctx, reg, sch, cfg.HeartbeatTimeout, logger)
+
+	// 启动 GB·h 计量（周期采样在线容量）。
+	if cfg.MeterInterval > 0 {
+		go mtr.Run(ctx)
+	} else {
+		logger.Printf("meter: disabled (meter_interval=0)")
+	}
 
 	// 启动 HTTP API。
 	go func() {
