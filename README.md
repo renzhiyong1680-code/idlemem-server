@@ -176,6 +176,44 @@ OK
   3. 无可用替换节点 → 分片置为 `lost`；
   4. 离线超过 `evict_after` → 节点回收。
 
+## 企业客户接入
+
+网关对外暴露**标准 Redis 协议**（默认 `:6379`），任何 Redis 客户端（`redis-cli`、各语言 SDK）均可直接接入，无需专用 SDK：
+
+```bash
+# 1. 认证（连接级状态：同一连接内后续命令免重复认证）
+redis-cli -h gateway.example.com -p 6379 AUTH <tenant-token>
+
+# 2. 读写（key 建议带租户前缀；TTL 由平台 Best-Effort 策略治理）
+SET tenant:hot_config '{"feature":"a"}' EX 300
+GET tenant:hot_config
+TTL  tenant:hot_config
+DEL  tenant:hot_config
+```
+
+仓库自带一个**零依赖示例客户端**（纯标准库手写 RESP，展示完整接入步骤）：
+
+```bash
+go run ./examples/client -addr 127.0.0.1:6379 -token <tenant-token>
+```
+
+输出示例：
+
+```
+[client] auth: ok (token=05****************************6e)
+[client] set: greeting = "hello from xiancun cloud" (ttl 60s)
+[client] get: greeting = "hello from xiancun cloud"
+[client] ttl: greeting = 59 seconds
+[client] del: greeting -> 1 key(s) removed
+```
+
+接入须知（Best-Effort 缓存语义，非持久存储）：
+
+- 数据为**分布式 KV 缓存**：节点随时可能离线，多副本可降低丢失概率，但不保证持久化；
+- **不要存放敏感数据**（密钥、个人信息等），企业客户应仅缓存可重算的临时数据；
+- 容量治理：写入超出节点可用容量会返回 `ERR out of capacity`；
+- 计费：按活跃分片容量的 **GB·h** 计量（见上方计量章节）。
+
 ## GB·h 计量（计费/结算）
 
 后台按 `meter_interval`（默认 60s）周期采样并累计 **GB·h**（1 GB 保持 1 小时）：
@@ -208,6 +246,7 @@ idlemem-server/
 │   ├── meter/             # GB·h 计量（周期采样累加，计费/结算依据）
 │   ├── api/               # REST 管理 API
 │   └── gateway/           # Redis 协议网关（redcon）+ 节点转发（forward.go）
+├── examples/client/       # 企业客户接入示例（零依赖 RESP 客户端）
 └── go.mod
 ```
 
