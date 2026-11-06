@@ -385,3 +385,36 @@ func TestMetrics(t *testing.T) {
 		}
 	}
 }
+
+// TestCreateOrderReportsEffectiveReplicas 省略 replicas 时，响应必须给出实际生效的副本数。
+// 之前返回的是请求里的 0，而分片按默认副本数建了 1 个，客户对着 JSON 无法核对。
+func TestCreateOrderReportsEffectiveReplicas(t *testing.T) {
+	ts := newTestServer(t)
+	postJSON(t, ts.URL+"/api/v1/nodes/heartbeat", heartbeat.Snapshot{
+		NodeID:        "node-r",
+		Status:        heartbeat.StatusOnline,
+		CapacityBytes: 4 << 30,
+	})
+
+	_, ten := postJSON(t, ts.URL+"/api/v1/tenants", map[string]any{"name": "acme"})
+	tenantID, _ := ten["id"].(string)
+	if tenantID == "" {
+		t.Fatalf("tenant id missing: %v", ten)
+	}
+
+	resp, out := postJSON(t, ts.URL+"/api/v1/orders", map[string]any{
+		"tenant_id":      tenantID,
+		"capacity_bytes": 1 << 30,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, body = %v", resp.StatusCode, out)
+	}
+	order, _ := out["order"].(map[string]any)
+	if reps, _ := order["replicas"].(float64); reps != 1 {
+		t.Fatalf("order replicas = %v, want 1 (the configured default)", order["replicas"])
+	}
+	shards, _ := out["shards"].([]any)
+	if len(shards) != 1 {
+		t.Fatalf("shards = %d, want 1", len(shards))
+	}
+}

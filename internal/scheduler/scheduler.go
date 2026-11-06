@@ -41,6 +41,10 @@ func (sc *Scheduler) PlaceOrder(o *model.Order) ([]*model.Shard, error) {
 	if replicas <= 0 {
 		replicas = sc.DefaultReplicas
 	}
+	// 兜底：配置也没写时按 1 份处理。否则下面按副本数切分容量会整数除零。
+	if replicas <= 0 {
+		replicas = 1
+	}
 
 	// 每个分片一个节点，副本数表示总份数（同一订单多份数据）。
 	per := o.CapacityBytes / uint64(replicas)

@@ -305,11 +305,20 @@ func (s *Server) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// 副本数归一：请求没写就用配置里的默认值，并记录实际生效的值。
+	// 否则响应里会显示 replicas=0，而实际按默认副本建了分片，客户对着 JSON 看不懂。
+	replicas := req.Replicas
+	if replicas <= 0 {
+		replicas = s.scheduler.DefaultReplicas
+	}
+	if replicas <= 0 {
+		replicas = 1
+	}
 	o := &model.Order{
 		ID:            newID(),
 		TenantID:      req.TenantID,
 		CapacityBytes: req.CapacityBytes,
-		Replicas:      req.Replicas,
+		Replicas:      replicas,
 		Status:        model.OrderActive,
 		CreatedAt:     time.Now(),
 	}
