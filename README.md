@@ -154,6 +154,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/tenants/<id>/resume
 | GET | `/api/v1/usage/tenants` | 租户活跃分片 GB·h 计量（客户计费依据） |
 | GET | `/api/v1/billing` | 计费报告：客户账单 + 节点结算 + 平台佣金 |
 | GET | `/api/v1/summary` | 平台概览（节点/容量/订单/分片统计） |
+| GET | `/metrics` | Prometheus 指标（节点/容量/订单/分片/GB·h/单价） |
 | GET | `/healthz` | 健康检查 |
 
 ## 配置
@@ -319,6 +320,35 @@ total,rows=2,0.004444,0.000000,0.0000016000
 ```
 
 生产建议：用 cron 每日/每月调用一次 `settle`（例如 `0 2 * * *`），把返回的账单 JSON 归档到对象存储或财务系统。
+
+## 运维可观测（/metrics）
+
+`GET /metrics` 输出 Prometheus 文本格式（`text/plain; version=0.0.4`），无需额外依赖，可直接挂到 Prometheus + Grafana：
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: xiancun-control-plane
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["127.0.0.1:8080"]
+```
+
+暴露的指标：
+
+| 指标 | 类型 | 含义 |
+|---|---|---|
+| `xiancun_nodes_total{status=online\|offline\|suspended}` | gauge | 节点数量分状态 |
+| `xiancun_node_capacity_bytes` | gauge | 全网可贡献容量合计 |
+| `xiancun_node_used_bytes` | gauge | 节点已用内存合计 |
+| `xiancun_orders_total{status=active\|degraded\|expired}` | gauge | 订单分状态 |
+| `xiancun_ordered_capacity_bytes` | gauge | 已售出容量（活跃订单） |
+| `xiancun_shards_total{status=active\|lost}` | gauge | 分片分状态 |
+| `xiancun_usage_gb_hours{scope=tenant\|node_used\|node}` | counter | 三档 GB·h 累计（计费/结算/供给参考） |
+| `xiancun_price_cny_per_gb_hour{role=customer\|supplier}` | gauge | 当前生效单价 |
+| `xiancun_up` | gauge | 控制面存活标识 |
+
+健康检查用轻量端点：`GET /healthz` → `{"status":"ok"}`，适合容器/K8s liveness probe。
 
 ## 目录结构
 

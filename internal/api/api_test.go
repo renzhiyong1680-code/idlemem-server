@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -213,5 +214,37 @@ func TestCreateOrder_UnknownTenant(t *testing.T) {
 		"tenant_id": "id-not-exist", "capacity_bytes": 1 << 30,
 	}); resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("unknown tenant order = %d, want 404", resp.StatusCode)
+	}
+}
+
+// TestMetrics 验证 Prometheus 文本端点可用且包含核心指标。
+func TestMetrics(t *testing.T) {
+	ts := newTestServer(t)
+	postJSON(t, ts.URL+"/api/v1/nodes/heartbeat", heartbeat.Snapshot{
+		NodeID:        "node-m",
+		Status:        heartbeat.StatusOnline,
+		CapacityBytes: 4 << 30,
+		UsedBytes:     1 << 30,
+	})
+
+	resp, err := http.Get(ts.URL + "/metrics")
+	if err != nil {
+		t.Fatalf("get metrics: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("metrics status = %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	text := string(body)
+	for _, want := range []string{
+		`xiancun_nodes_total{status="online"} 1`,
+		`xiancun_node_capacity_bytes 4294967296`,
+		`xiancun_price_cny_per_gb_hour{role="customer"} 0.0004`,
+		"xiancun_up 1",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("metrics missing %q\n%s", want, text)
+		}
 	}
 }

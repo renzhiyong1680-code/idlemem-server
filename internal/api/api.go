@@ -92,6 +92,7 @@ func (s *Server) routes() {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	s.mux.HandleFunc("GET /api/v1/summary", s.handleSummary)
+	s.mux.HandleFunc("GET /metrics", s.handleMetrics)
 }
 
 // Handler 返回可挂载的 http.Handler。
@@ -371,6 +372,84 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 		"shards": len(shards),
 		"time":   time.Now().Format(time.RFC3339),
 	})
+}
+
+// handleMetrics 输出 Prometheus 文本格式指标，供 Prometheus/Grafana 抓取。
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	nodes, _ := s.store.ListNodes()
+	orders, _ := s.store.ListOrders()
+	shards, _ := s.store.ListShards()
+
+	statusCount := map[model.NodeStatus]int{}
+	var capBytes, usedBytes uint64
+	for _, n := range nodes {
+		statusCount[n.Status]++
+		capBytes += n.CapacityBytes
+		usedBytes += n.UsedBytes
+	}
+	orderCount := map[model.OrderStatus]int{}
+	var orderedBytes uint64
+	for _, o := range orders {
+		orderCount[o.Status]++
+		if o.Status == model.OrderActive {
+			orderedBytes += o.CapacityBytes
+		}
+	}
+	shardCount := map[model.ShardStatus]int{}
+	for _, sh := range shards {
+		shardCount[sh.Status]++
+	}
+
+	var b strings.Builder
+	metric := func(name, help, typ string) {
+		fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s %s\n", name, help, name, typ)
+	}
+	metric("xiancun_nodes_total", "节点数量（按状态）", "gauge")
+	for _, st := range []model.NodeStatus{model.NodeOnline, model.NodeOffline, model.NodeSuspended} {
+		fmt.Fprintf(&b, "xiancun_nodes_total{status=%q} %d\n", st, statusCount[st])
+	}
+	metric("xiancun_node_capacity_bytes", "节点上报的可贡献容量合计", "gauge")
+	fmt.Fprintf(&b, "xiancun_node_capacity_bytes %d\n", capBytes)
+	metric("xiancun_node_used_bytes", "节点已用内存合计", "gauge")
+	fmt.Fprintf(&b, "xiancun_node_used_bytes %d\n", usedBytes)
+
+	metric("xiancun_orders_total", "订单数量（按状态）", "gauge")
+	for _, st := range []model.OrderStatus{model.OrderActive, model.OrderDegraded, model.OrderExpired} {
+		fmt.Fprintf(&b, "xiancun_orders_total{status=%q} %d\n", st, orderCount[st])
+	}
+	metric("xiancun_ordered_capacity_bytes", "已售出（活跃订单）容量合计", "gauge")
+	fmt.Fprintf(&b, "xiancun_ordered_capacity_bytes %d\n", orderedBytes)
+
+	metric("xiancun_shards_total", "分片数量（按状态）", "gauge")
+	for _, st := range []model.ShardStatus{model.ShardActive, model.ShardLost} {
+		fmt.Fprintf(&b, "xiancun_shards_total{status=%q} %d\n", st, shardCount[st])
+	}
+
+	if s.meter != nil {
+		metric("xiancun_usage_gb_hours", "累计计量 GB·h（scope=tenant/node_used/node）", "counter")
+		for _, scope := range []model.UsageScope{model.UsageScopeTenant, model.UsageScopeNodeUsed, model.UsageScopeNode} {
+			recs, err := s.meter.Snapshot(scope)
+			if err != nil {
+				continue
+			}
+			var sum float64
+			for _, rec := range recs {
+				sum += rec.GBHours
+			}
+			fmt.Fprintf(&b, "xiancun_usage_gb_hours{scope=%q} %.10f\n", scope, sum)
+		}
+	}
+
+	metric("xiancun_price_cny_per_gb_hour", "当前单价（role=customer/supplier）", "gauge")
+	fmt.Fprintf(&b, "xiancun_price_cny_per_gb_hour{role=\"customer\"} %g\n", s.price.CustomerPerGBHour)
+	fmt.Fprintf(&b, "xiancun_price_cny_per_gb_hour{role=\"supplier\"} %g\n", s.price.SupplierPerGBHour)
+
+	metric("xiancun_up", "控制面存活标识", "gauge")
+	b.WriteString("xiancun_up 1\n")
+
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(b.String()))
 }
 
 // ---------- 工具 ----------
