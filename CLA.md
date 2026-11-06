@@ -1,6 +1,6 @@
 # 贡献者许可协议（CLA）
 
-闲存云（idlemem）项目由任志勇（以下称"项目方"）维护。为保证项目在 AGPL-3.0 与商业授权并行的双许可模式下权利链完整，向本项目提交贡献的自然人或法人（以下称"贡献者"）应同意本协议。
+闲存云（idlemem）项目由任志勇（以下称"项目方"，其 GitHub 账号为 [@renzhiyong1680-code](https://github.com/renzhiyong1680-code)）维护。为保证项目在 AGPL-3.0 与商业授权并行的双许可模式下权利链完整，向本项目提交贡献的自然人或法人（以下称"贡献者"）应同意本协议。
 
 ## 一、适用范围
 
@@ -70,7 +70,7 @@
 
 # Contributor License Agreement (CLA)
 
-The XianCun Cloud (idlemem) project is maintained by Ren Zhiyong ("the Project Owner"). To keep the rights chain complete under the project's dual-licensing model of AGPL-3.0 plus commercial licensing, any natural person or legal entity submitting a contribution to this project ("the Contributor") shall agree to this Agreement.
+The XianCun Cloud (idlemem) project is maintained by Ren Zhiyong ("the Project Owner", GitHub account [@renzhiyong1680-code](https://github.com/renzhiyong1680-code)). To keep the rights chain complete under the project's dual-licensing model of AGPL-3.0 plus commercial licensing, any natural person or legal entity submitting a contribution to this project ("the Contributor") shall agree to this Agreement.
 
 ## 1. Scope
 

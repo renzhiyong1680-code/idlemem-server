@@ -3,7 +3,7 @@ module github.com/renzhiyong1680-code/idlemem-server
 go 1.27
 
 require (
-	github.com/renzhiyong1680-code/idlemem-core v0.1.0
+	github.com/renzhiyong1680-code/idlemem-core v0.1.1
 	github.com/tidwall/buntdb v1.3.2
 	github.com/tidwall/redcon v1.6.2
 )

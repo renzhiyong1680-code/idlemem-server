@@ -4,6 +4,8 @@
 与 Agent 核心库 [idlemem-core](https://github.com/renzhiyong1680-code/idlemem-core) 配套使用：Agent 上报心跳与容量，
 控制面负责节点注册、调度分配、掉线自愈，并通过 Redis 协议网关向企业客户提供服务。
 
+本仓库是三个仓库中的**平台侧**。另外两个：[idlemem-core](https://github.com/renzhiyong1680-code/idlemem-core)（贡献节点核心库）、[idlemem-desktop](https://github.com/renzhiyong1680-code/idlemem-desktop)（桌面托盘）。项目定位、**明确不做什么**、能力边界与当前进度，见 [项目介绍](https://github.com/renzhiyong1680-code/idlemem-core/blob/master/docs/%E9%A1%B9%E7%9B%AE%E4%BB%8B%E7%BB%8D.md)。
+
 > ⚠️ 当前为 **MVP 单实例** 版本：调度器为单实例，多控制面水平扩展属于下一阶段演进。
 
 ## 架构

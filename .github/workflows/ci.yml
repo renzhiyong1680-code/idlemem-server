@@ -45,10 +45,25 @@ jobs:
         with:
           path: src/idlemem-server
       # 出包时要额外编译核心库里的 agent 二进制，所以仍需要 core 源码目录。
+      # 必须先按 go.mod 声明的版本检出 core：不写 ref 会取 core 的默认分支最新提交，
+      # 一旦 core 有新提交而 server 尚未升级依赖，打出的 agent 与 server 版本就错配了。
+      - name: resolve core version
+        id: corever
+        working-directory: src/idlemem-server
+        run: |
+          set -euo pipefail
+          ver=$(sed -n 's/.*idlemem-core v\([0-9][0-9.]*\).*/\1/p' go.mod | head -n 1)
+          if [ -z "$ver" ]; then
+            echo "cannot resolve idlemem-core version from go.mod" >&2
+            exit 1
+          fi
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "core version resolved: v$ver"
       - name: checkout core
         uses: actions/checkout@v4
         with:
           repository: renzhiyong1680-code/idlemem-core
+          ref: v${{ steps.corever.outputs.version }}
           path: src/idlemem-core
       - uses: actions/setup-go@v5
         with:
