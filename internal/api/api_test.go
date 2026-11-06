@@ -150,3 +150,68 @@ func TestSummary(t *testing.T) {
 		t.Fatalf("summary status = %d", resp.StatusCode)
 	}
 }
+
+// TestTenantQuotaAndSuspend 验证配额上限与停服准入：
+// 配额 2GB 时第二单 2GB 必须 409；停服后下单 409，恢复后可继续下单。
+func TestTenantQuotaAndSuspend(t *testing.T) {
+	ts := newTestServer(t)
+	postJSON(t, ts.URL+"/api/v1/nodes/heartbeat", heartbeat.Snapshot{
+		NodeID:        "node-quota",
+		Version:       "0.1.0",
+		Status:        heartbeat.StatusOnline,
+		CapacityBytes: 16 << 30,
+	})
+
+	resp, tOut := postJSON(t, ts.URL+"/api/v1/tenants", map[string]any{
+		"name":        "quota-tenant",
+		"quota_bytes": 2 << 30,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create tenant: %d", resp.StatusCode)
+	}
+	id := tOut["id"].(string)
+
+	// 第一单 1GB：配额内，允许。
+	if resp, out := postJSON(t, ts.URL+"/api/v1/orders", map[string]any{
+		"tenant_id": id, "capacity_bytes": 1 << 30,
+	}); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("first order = %d, body=%v", resp.StatusCode, out)
+	}
+
+	// 第二单 2GB：已用 1GB + 2GB > 2GB，必须拒绝。
+	if resp, _ := postJSON(t, ts.URL+"/api/v1/orders", map[string]any{
+		"tenant_id": id, "capacity_bytes": 2 << 30,
+	}); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("over-quota order = %d, want 409", resp.StatusCode)
+	}
+
+	// 停服后下单拒绝。
+	if resp, _ := postJSON(t, ts.URL+"/api/v1/tenants/"+id+"/suspend", map[string]any{}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("suspend = %d", resp.StatusCode)
+	}
+	if resp, _ := postJSON(t, ts.URL+"/api/v1/orders", map[string]any{
+		"tenant_id": id, "capacity_bytes": 1 << 30,
+	}); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("order on suspended tenant = %d, want 409", resp.StatusCode)
+	}
+
+	// 恢复后可再下单（配额已用 1GB，1GB 仍在上限内）。
+	if resp, _ := postJSON(t, ts.URL+"/api/v1/tenants/"+id+"/resume", map[string]any{}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("resume = %d", resp.StatusCode)
+	}
+	if resp, out := postJSON(t, ts.URL+"/api/v1/orders", map[string]any{
+		"tenant_id": id, "capacity_bytes": 1 << 30,
+	}); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("order after resume = %d, body=%v", resp.StatusCode, out)
+	}
+}
+
+// TestCreateOrder_UnknownTenant 未知租户下单必须 404，不能静默建单。
+func TestCreateOrder_UnknownTenant(t *testing.T) {
+	ts := newTestServer(t)
+	if resp, _ := postJSON(t, ts.URL+"/api/v1/orders", map[string]any{
+		"tenant_id": "id-not-exist", "capacity_bytes": 1 << 30,
+	}); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown tenant order = %d, want 404", resp.StatusCode)
+	}
+}

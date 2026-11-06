@@ -61,6 +61,8 @@ func (s *Server) routes() {
 	// 租户接口
 	s.mux.HandleFunc("POST /api/v1/tenants", s.handleCreateTenant)
 	s.mux.HandleFunc("GET /api/v1/tenants", s.handleListTenants)
+	s.mux.HandleFunc("POST /api/v1/tenants/{id}/suspend", s.handleSuspendTenant)
+	s.mux.HandleFunc("POST /api/v1/tenants/{id}/resume", s.handleResumeTenant)
 
 	// 订单接口
 	s.mux.HandleFunc("POST /api/v1/orders", s.handleCreateOrder)
@@ -175,7 +177,9 @@ func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
 		Name:       req.Name,
 		Token:      req.Token,
 		QuotaBytes: req.QuotaBytes,
+		Status:     model.TenantActive,
 		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
 	}
 	// Token 未提供时自动生成，保证企业客户可立即 AUTH 接入。
 	if t.Token == "" {
@@ -200,6 +204,40 @@ func (s *Server) handleListTenants(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tenants)
 }
 
+// setTenantStatus 切换租户状态（停服/恢复），停服后网关鉴权立即拒绝。
+func (s *Server) setTenantStatus(w http.ResponseWriter, r *http.Request, st model.TenantStatus) {
+	id := r.PathValue("id")
+	t, err := s.store.GetTenant(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if t == nil {
+		writeError(w, http.StatusNotFound, "tenant not found")
+		return
+	}
+	if t.Status == st {
+		writeJSON(w, http.StatusOK, t)
+		return
+	}
+	t.Status = st
+	t.UpdatedAt = time.Now()
+	if err := s.store.UpsertTenant(t); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.logger.Printf("tenant %s status -> %s", t.ID, st)
+	writeJSON(w, http.StatusOK, t)
+}
+
+func (s *Server) handleSuspendTenant(w http.ResponseWriter, r *http.Request) {
+	s.setTenantStatus(w, r, model.TenantSuspended)
+}
+
+func (s *Server) handleResumeTenant(w http.ResponseWriter, r *http.Request) {
+	s.setTenantStatus(w, r, model.TenantActive)
+}
+
 // ---------- 订单 ----------
 
 type createOrderReq struct {
@@ -217,6 +255,38 @@ func (s *Server) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 	if req.TenantID == "" || req.CapacityBytes == 0 {
 		writeError(w, http.StatusBadRequest, "tenant_id and capacity_bytes are required")
 		return
+	}
+	ten, err := s.store.GetTenant(req.TenantID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if ten == nil {
+		writeError(w, http.StatusNotFound, "tenant not found")
+		return
+	}
+	if ten.Status == model.TenantSuspended {
+		writeError(w, http.StatusConflict, "tenant suspended")
+		return
+	}
+	// 配额校验：活跃订单容量之和 + 本次容量不得超过配额（0 表示不限）。
+	if ten.QuotaBytes > 0 {
+		orders, lerr := s.store.ListOrders()
+		if lerr != nil {
+			writeError(w, http.StatusInternalServerError, lerr.Error())
+			return
+		}
+		var used uint64
+		for _, o := range orders {
+			if o.TenantID == req.TenantID && o.Status == model.OrderActive {
+				used += o.CapacityBytes
+			}
+		}
+		if used+req.CapacityBytes > ten.QuotaBytes {
+			writeError(w, http.StatusConflict,
+				fmt.Sprintf("quota exceeded: used=%d requested=%d quota=%d", used, req.CapacityBytes, ten.QuotaBytes))
+			return
+		}
 	}
 	o := &model.Order{
 		ID:            newID(),

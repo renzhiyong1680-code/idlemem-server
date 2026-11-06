@@ -86,11 +86,12 @@ go run ../idlemem-core/cmd/xiancun-agent -server http://127.0.0.1:8080 -kv :1638
 ```bash
 curl -X POST http://127.0.0.1:8080/api/v1/tenants \
   -H 'Content-Type: application/json' \
-  -d '{"name": "demo-tenant"}'
-# => {"id":"...","name":"demo-tenant","token":"<自动生成32位token>",...}
+  -d '{"name": "demo-tenant", "quota_bytes": 10737418240}'
+# => {"id":"...","name":"demo-tenant","token":"<自动生成32位token>","quota_bytes":10737418240,"status":"active",...}
 ```
 
 > Token 未提供时自动生成（32 位十六进制），用于网关 AUTH 鉴权。
+> `quota_bytes` 为该租户全部活跃订单容量之和的上限（0 或缺省表示不限）。
 
 ### 第三步：创建订单（购买缓存容量，自动分配分片）
 
@@ -99,6 +100,8 @@ curl -X POST http://127.0.0.1:8080/api/v1/orders \
   -H 'Content-Type: application/json' \
   -d '{"tenant_id": "<上一步返回的id>", "capacity_bytes": 2147483648, "replicas": 1}'
 ```
+
+> 下单前校验：租户必须存在且未停服；已购容量 + 本次容量不得超过 `quota_bytes`，超额返回 `409 quota exceeded`。
 
 ### 第四步：用标准 Redis 客户端访问缓存
 
@@ -119,6 +122,20 @@ OK
 
 支持命令：`AUTH` `PING` `SET [EX]` `GET` `DEL` `EXPIRE` `TTL` `INFO` `QUIT`。
 
+### 停服与恢复（欠费控制）
+
+租户欠费或违规时可一键停服，网关侧立即生效，无需重启：
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/tenants/<id>/suspend
+# 客户再连接：AUTH <token> -> ERR tenant suspended
+
+curl -X POST http://127.0.0.1:8080/api/v1/tenants/<id>/resume
+# 恢复后 AUTH 正常返回 OK
+```
+
+停服同时阻断新订单（`409 tenant suspended`）；已存数据保留不删除，恢复后立即可读。
+
 ## REST API
 
 | 方法 | 路径 | 说明 |
@@ -128,6 +145,8 @@ OK
 | GET | `/api/v1/nodes` | 节点列表 |
 | POST | `/api/v1/tenants` | 创建租户 |
 | GET | `/api/v1/tenants` | 租户列表 |
+| POST | `/api/v1/tenants/{id}/suspend` | 停服（网关立即拒绝该租户鉴权） |
+| POST | `/api/v1/tenants/{id}/resume` | 恢复服务 |
 | POST | `/api/v1/orders` | 创建订单并分配分片（无可用节点返回 503） |
 | GET | `/api/v1/orders` | 订单列表 |
 | GET | `/api/v1/shard` | 分片列表 |

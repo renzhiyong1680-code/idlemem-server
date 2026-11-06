@@ -34,13 +34,23 @@ type Node struct {
 	FirstSeen     time.Time  `json:"first_seen"`
 }
 
+// TenantStatus 租户状态。
+type TenantStatus string
+
+const (
+	TenantActive    TenantStatus = "active"    // 正常服务
+	TenantSuspended TenantStatus = "suspended" // 停服（欠费/违规），网关拒绝鉴权
+)
+
 // Tenant 租户（企业客户）。
 type Tenant struct {
-	ID         string    `json:"id"`
-	Name       string    `json:"name"`
-	Token      string    `json:"token"`
-	QuotaBytes uint64    `json:"quota_bytes"` // 配额上限，0 不限制
-	CreatedAt  time.Time `json:"created_at"`
+	ID         string       `json:"id"`
+	Name       string       `json:"name"`
+	Token      string       `json:"token"`
+	QuotaBytes uint64       `json:"quota_bytes"` // 配额上限（活跃订单容量之和不可超过），0 不限制
+	Status     TenantStatus `json:"status"`
+	CreatedAt  time.Time    `json:"created_at"`
+	UpdatedAt  time.Time    `json:"updated_at"`
 }
 
 // OrderStatus 订单状态。

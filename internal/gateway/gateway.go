@@ -134,6 +134,10 @@ func (g *Gateway) handleAuth(conn redcon.Conn, args []string) {
 	}
 	for _, t := range tenants {
 		if t.Token != "" && t.Token == token {
+			if t.Status == model.TenantSuspended {
+				conn.WriteError("ERR tenant suspended")
+				return
+			}
 			conn.SetContext(t)
 			conn.WriteString("OK")
 			return
