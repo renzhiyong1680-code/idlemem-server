@@ -91,6 +91,10 @@ go build -o bin/idlemem-server ./cmd/server
 ./bin/idlemem-server -config config.json
 ```
 
+## 使用流程
+
+以下步骤与上面的启动方式无关：不管用哪种方式把控制面起来，用法都一样。
+
 ### 第一步：注册并心跳一个 Agent 节点
 
 ```bash
