@@ -1,7 +1,7 @@
 # 闲存云调度控制面（idlemem-server）
 
 闲存云（XianCun Cloud）分布式闲置内存缓存 P2P 平台的**平台后端 / 调度控制面**。
-与 Agent 核心库 [idlemem-core](../idlemem-core) 配套使用：Agent 上报心跳与容量，
+与 Agent 核心库 [idlemem-core](https://github.com/xiancuncloud/idlemem-core) 配套使用：Agent 上报心跳与容量，
 控制面负责节点注册、调度分配、掉线自愈，并通过 Redis 协议网关向企业客户提供服务。
 
 > ⚠️ 当前为 **MVP 单实例** 版本：调度器为单实例，多控制面水平扩展属于下一阶段演进。
@@ -45,7 +45,15 @@
 
 ## 快速开始
 
-前置：Go 1.22+（本项目使用 Go 1.22 的 `http.ServeMux` 方法路由）。
+前置：Go 1.27+（以 `go.mod` 里的 `go` 指令为准），并且需要把两个仓库放在**同级目录**：
+
+```bash
+git clone https://github.com/xiancuncloud/idlemem-core.git
+git clone https://github.com/xiancuncloud/idlemem-server.git
+```
+
+`go.mod` 里用 `replace github.com/xiancuncloud/idlemem-core => ../idlemem-core` 指向同级目录，
+所以单独检出本仓库会编译失败——这是本地联合开发形态；正式发布时改为按版本号依赖（见下文"发版"）。
 
 ```bash
 # 1. 构建
