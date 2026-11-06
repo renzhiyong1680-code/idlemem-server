@@ -654,6 +654,10 @@ go test -race ./...    # 竞态检测
 - 核心库按版本号依赖：`github.com/renzhiyong1680-code/idlemem-core v0.1.0`；
 - 要升级核心库版本，改 `go.mod` 里的这一行 require 后执行 `go mod tidy` 即可，不需要本地 replace。
 
-## License
+## 许可证
 
-MIT
+本项目采用 **GNU Affero General Public License v3.0**（AGPL-3.0）授权，全文见 [LICENSE](LICENSE)。
+
+- **网络服务义务**：任何通过网络向他人提供本项目（或其修改版）服务的部署，都必须向使用者提供对应的完整源码。本仓库提供的是 8080 API 与 6379 网关的控制面服务，按此条执行。
+- **商业授权**：如需在闭源产品中集成，或需要免除 AGPL-3.0 的开源义务，可另行取得商业授权，通过本仓库 Issues 或 GitHub 账号 @renzhiyong1680-code 联系。
+- **历史版本**：`v0.1.0` 及更早版本按 MIT 许可证发布，该授权不可撤销；AGPL-3.0 自本变更之后的提交起适用。
