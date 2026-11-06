@@ -370,7 +370,7 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 	shards, _ := s.store.ListShards()
 
 	var online, offline, suspended int
-	var totalCap, usedCap uint64
+	var totalCap, usedCap, committed uint64
 	for _, n := range nodes {
 		totalCap += n.CapacityBytes
 		usedCap += n.UsedBytes
@@ -383,6 +383,15 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 			suspended++
 		}
 	}
+	// committed 是调度已经卖出去的容量（按活跃分片统计），
+	// 与 used 的区别很关键：used 是节点上报的真实占用，节点重启会归零；
+	// 判断还能不能接新订单只能看 committed。
+	for _, sh := range shards {
+		if sh.Status == model.ShardLost {
+			continue
+		}
+		committed += sh.Bytes
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"nodes": map[string]any{
 			"total":     len(nodes),
@@ -391,6 +400,7 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 			"offline":   offline,
 			"capacity":  totalCap,
 			"used":      usedCap,
+			"committed": committed,
 		},
 		"orders": len(orders),
 		"shards": len(shards),

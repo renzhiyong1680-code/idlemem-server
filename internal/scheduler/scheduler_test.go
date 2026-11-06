@@ -273,3 +273,85 @@ func TestHeartbeat_And_Sweep(t *testing.T) {
 		t.Fatalf("node-live status = %s, want online", n.Status)
 	}
 }
+
+// TestPlaceOrder_CountsShardCommitmentNotReportedUsage 复现节点重启后的超卖：
+// Agent 重启，心跳把 used_bytes 上报为 0，但分片仍然挂在节点上。
+// 调度必须按分片的承诺量判断，而不是按这个会被覆盖的上报值。
+func TestPlaceOrder_CountsShardCommitmentNotReportedUsage(t *testing.T) {
+	st, _, sch := newTestEnv(t)
+	// 1GiB 容量，正好放两个 512MiB 分片（MinShardBytes 也是 512MiB）。
+	addNode(t, st, "node-a", 1<<30, 100)
+
+	place := func(id string) error {
+		o := &model.Order{
+			ID:            id,
+			TenantID:      "tenant-1",
+			CapacityBytes: 512 << 20,
+			Replicas:      1,
+			Status:        model.OrderActive,
+			CreatedAt:     time.Now(),
+		}
+		_, err := sch.PlaceOrder(o)
+		return err
+	}
+
+	if err := place("order-1"); err != nil {
+		t.Fatalf("first order: %v", err)
+	}
+	if err := place("order-2"); err != nil {
+		t.Fatalf("second order: %v", err)
+	}
+
+	// 模拟节点重启：心跳把上报占用清零，分片仍在。
+	n, err := st.GetNode("node-a")
+	if err != nil || n == nil {
+		t.Fatalf("get node: %v", err)
+	}
+	n.UsedBytes = 0
+	if err := st.UpsertNode(n); err != nil {
+		t.Fatalf("upsert node: %v", err)
+	}
+
+	// 容量已经被两个分片占满，第三个订单必须被拒绝。
+	if err := place("order-3"); err != ErrNoNodes {
+		t.Fatalf("third order err = %v, want ErrNoNodes", err)
+	}
+}
+
+// TestReleaseOrder_FreesCommitment 验证释放订单后，分片承诺量归零，容量重新可卖。
+func TestReleaseOrder_FreesCommitment(t *testing.T) {
+	st, _, sch := newTestEnv(t)
+	addNode(t, st, "node-a", 1<<30, 100)
+
+	o := &model.Order{
+		ID:            "order-1",
+		TenantID:      "tenant-1",
+		CapacityBytes: 1 << 30,
+		Replicas:      1,
+		Status:        model.OrderActive,
+		CreatedAt:     time.Now(),
+	}
+	if _, err := sch.PlaceOrder(o); err != nil {
+		t.Fatalf("place: %v", err)
+	}
+
+	// 占满后再下单应失败。
+	o2 := &model.Order{
+		ID:            "order-2",
+		TenantID:      "tenant-1",
+		CapacityBytes: 512 << 20,
+		Replicas:      1,
+		Status:        model.OrderActive,
+		CreatedAt:     time.Now(),
+	}
+	if _, err := sch.PlaceOrder(o2); err != ErrNoNodes {
+		t.Fatalf("second err = %v, want ErrNoNodes", err)
+	}
+
+	if _, err := sch.ReleaseOrder("order-1"); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	if _, err := sch.PlaceOrder(o2); err != nil {
+		t.Fatalf("after release: %v", err)
+	}
+}

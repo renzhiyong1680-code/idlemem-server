@@ -42,16 +42,7 @@ func (sc *Scheduler) PlaceOrder(o *model.Order) ([]*model.Shard, error) {
 		replicas = sc.DefaultReplicas
 	}
 
-	avail, err := sc.availableNodes()
-	if err != nil {
-		return nil, err
-	}
-	if len(avail) == 0 {
-		return nil, ErrNoNodes
-	}
-
 	// 每个分片一个节点，副本数表示总份数（同一订单多份数据）。
-	shards := make([]*model.Shard, 0, replicas)
 	per := o.CapacityBytes / uint64(replicas)
 	if per == 0 {
 		per = o.CapacityBytes
@@ -60,8 +51,18 @@ func (sc *Scheduler) PlaceOrder(o *model.Order) ([]*model.Shard, error) {
 		per = sc.MinShardBytes
 	}
 
-	picked := sc.pickNodes(avail, replicas)
-	for i, n := range picked {
+	cands, err := sc.candidates()
+	if err != nil {
+		return nil, err
+	}
+	picked := pickCandidates(cands, replicas, per)
+	if len(picked) == 0 {
+		return nil, ErrNoNodes
+	}
+
+	shards := make([]*model.Shard, 0, len(picked))
+	for _, c := range picked {
+		n := c.node
 		sh := &model.Shard{
 			ID:         newID("shard"),
 			OrderID:    o.ID,
@@ -75,12 +76,12 @@ func (sc *Scheduler) PlaceOrder(o *model.Order) ([]*model.Shard, error) {
 		if err := sc.store.UpsertShard(sh); err != nil {
 			return nil, err
 		}
-		// 分片占用了节点容量，更新节点已用容量。
+		// 这里累加只用于列表展示的"已用容量"估算；调度决策以分片承诺量为准，
+		// 因为 Agent 心跳会用真实占用覆盖这个字段（节点重启后归零）。
 		n.UsedBytes += sh.Bytes
 		if err := sc.store.UpsertNode(n); err != nil {
 			return nil, err
 		}
-		_ = i
 		shards = append(shards, sh)
 	}
 
@@ -206,14 +207,45 @@ func (sc *Scheduler) Rebalance() (int, error) {
 	return fixed, nil
 }
 
-// availableNodes 返回当前可承接新订单的节点（online 且有富余容量）。
-func (sc *Scheduler) availableNodes() ([]*model.Node, error) {
+// candidate 一个可承接分片的节点，以及它实际还能承诺出去的容量。
+type candidate struct {
+	node *model.Node
+	free uint64
+}
+
+// allocatedByNode 汇总每个节点上仍占用架构容量的分片字节数。
+//
+// 这是调度侧判断"节点还剩多少能卖"的唯一依据。不能看 Node.UsedBytes：
+// 那个字段会被 Agent 心跳用真实 KV 占用覆盖，节点重启后归零，
+// 于是调度以为节点是空的、继续往上卖，造成超卖。
+// lost 分片已经不承载数据，不占承诺量。
+func (sc *Scheduler) allocatedByNode() (map[string]uint64, error) {
+	shards, err := sc.store.ListShards()
+	if err != nil {
+		return nil, err
+	}
+	alloc := make(map[string]uint64, len(shards))
+	for _, sh := range shards {
+		if sh.Status == model.ShardLost {
+			continue
+		}
+		alloc[sh.NodeID] += sh.Bytes
+	}
+	return alloc, nil
+}
+
+// candidates 返回当前可承接新分片的节点（online 且承诺余量大于 0）。
+func (sc *Scheduler) candidates() ([]candidate, error) {
 	now := time.Now()
 	nodes, err := sc.store.ListNodes()
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*model.Node, 0, len(nodes))
+	alloc, err := sc.allocatedByNode()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]candidate, 0, len(nodes))
 	for _, n := range nodes {
 		if n.Status != model.NodeOnline {
 			continue
@@ -221,43 +253,52 @@ func (sc *Scheduler) availableNodes() ([]*model.Node, error) {
 		if sc.registry.IsOffline(n, now) {
 			continue
 		}
-		if n.CapacityBytes <= n.UsedBytes {
+		used := alloc[n.ID]
+		if n.CapacityBytes <= used {
 			continue
 		}
-		out = append(out, n)
+		out = append(out, candidate{node: n, free: n.CapacityBytes - used})
 	}
 	return out, nil
 }
 
-// pickNodes 按信誉分降序选出前 n 个节点。
-func (sc *Scheduler) pickNodes(nodes []*model.Node, n int) []*model.Node {
-	sorted := make([]*model.Node, len(nodes))
-	copy(sorted, nodes)
+// pickCandidates 按信誉分降序选出前 n 个、且各自余量能放下一个分片的节点。
+func pickCandidates(cands []candidate, n int, need uint64) []candidate {
+	sorted := make([]candidate, len(cands))
+	copy(sorted, cands)
 	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].Score > sorted[j].Score
+		return sorted[i].node.Score > sorted[j].node.Score
 	})
-	if n > len(sorted) {
-		n = len(sorted)
+	out := make([]candidate, 0, n)
+	for _, c := range sorted {
+		if len(out) >= n {
+			break
+		}
+		if c.free < need {
+			continue
+		}
+		out = append(out, c)
 	}
-	return sorted[:n]
+	return out
 }
 
 // findReplacement 找一个可承接该分片的节点（排除原节点）。
 func (sc *Scheduler) findReplacement(sh *model.Shard, byID map[string]*model.Node, now time.Time) (*model.Node, error) {
-	avail, err := sc.availableNodes()
+	cands, err := sc.candidates()
 	if err != nil {
 		return nil, err
 	}
-	// 排除原节点与已离线的。
-	for _, n := range avail {
-		if n.ID == sh.NodeID {
+	// 排除原节点；余量必须放得下这个分片。
+	for _, c := range cands {
+		if c.node.ID == sh.NodeID {
 			continue
 		}
-		if uint64(n.CapacityBytes-n.UsedBytes) >= sh.Bytes {
-			n.UsedBytes += sh.Bytes
-			_ = sc.store.UpsertNode(n)
-			return n, nil
+		if c.free < sh.Bytes {
+			continue
 		}
+		c.node.UsedBytes += sh.Bytes
+		_ = sc.store.UpsertNode(c.node)
+		return c.node, nil
 	}
 	return nil, ErrNoNodes
 }

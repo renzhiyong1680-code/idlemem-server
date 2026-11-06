@@ -83,6 +83,6 @@ xiancun-cli -server $S -admin-token $T backup restore -f backup.json
 ## 四、值班时需要知道的边界
 
 - 节点上的 KV 数据是缓存语义：Best-Effort、可丢、不做持久化承诺；
-- `model.Node.UsedBytes` 同时被调度累加和 Agent 心跳写入，节点重启后心跳会把它上报为真实占用，
-  与调度侧的累加值可能短暂不一致——判断容量时以订单与分片为准；
+- 判断"这个节点还能卖多少"只看分片承诺量（`GET /api/v1/summary` 的 `nodes.committed`），
+  不看 `used_bytes`：后者由 Agent 心跳上报，节点重启后归零，据此调度会超卖；
 - 停服/改配额对已登录长连接的最长生效延迟是 10 秒（租户快照 TTL）。
