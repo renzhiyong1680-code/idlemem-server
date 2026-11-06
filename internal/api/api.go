@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"github.com/xiancuncloud/idlemem-server/internal/model"
 	"github.com/xiancuncloud/idlemem-server/internal/node"
 	"github.com/xiancuncloud/idlemem-server/internal/scheduler"
+	"github.com/xiancuncloud/idlemem-server/internal/settle"
 	"github.com/xiancuncloud/idlemem-server/internal/store"
 )
 
@@ -28,6 +30,7 @@ type Server struct {
 	scheduler *scheduler.Scheduler
 	meter     *meter.Meter
 	price     billing.Price
+	settler   *settle.Settler
 	mux       *http.ServeMux
 	logger    *log.Logger
 }
@@ -40,6 +43,7 @@ func New(s *store.Store, reg *node.Registry, sch *scheduler.Scheduler, mtr *mete
 		scheduler: sch,
 		meter:     mtr,
 		price:     price.Normalize(),
+		settler:   settle.New(s, price, logger),
 		logger:    logger,
 		mux:       http.NewServeMux(),
 	}
@@ -70,6 +74,11 @@ func (s *Server) routes() {
 
 	// 计费账单（GB·h 折算金额：客户账单/节点结算/平台佣金）
 	s.mux.HandleFunc("GET /api/v1/billing", s.handleBilling)
+
+	// 账期出账：把增量用量出一张期账单（可反复调用，日结/月结均可）
+	s.mux.HandleFunc("POST /api/v1/billing/settle", s.handleSettle)
+	s.mux.HandleFunc("GET /api/v1/billing/invoices", s.handleListInvoices)
+	s.mux.HandleFunc("GET /api/v1/billing/invoices/{id}", s.handleGetInvoice)
 
 	// 健康检查与概览
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -351,6 +360,50 @@ func (s *Server) handleBilling(w http.ResponseWriter, r *http.Request) {
 	rep := billing.Compute(s.price, tenantUsage, nodeUsed, nodeUsage)
 	rep.GeneratedAt = time.Now().Format(time.RFC3339)
 	writeJSON(w, http.StatusOK, rep)
+}
+
+// handleSettle 出账：结算「累计用量 − 已结算水位」，返回期账单。
+func (s *Server) handleSettle(w http.ResponseWriter, r *http.Request) {
+	if s.meter == nil {
+		writeError(w, http.StatusServiceUnavailable, "metering not enabled")
+		return
+	}
+	inv, err := s.settler.Settle(time.Now())
+	if errors.Is(err, settle.ErrNothingToBill) {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, inv)
+}
+
+func (s *Server) handleListInvoices(w http.ResponseWriter, r *http.Request) {
+	inv, err := s.settler.List()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if inv == nil {
+		inv = []*settle.Invoice{}
+	}
+	writeJSON(w, http.StatusOK, inv)
+}
+
+func (s *Server) handleGetInvoice(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	inv, err := s.settler.Get(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if inv == nil {
+		writeError(w, http.StatusNotFound, "invoice not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, inv)
 }
 
 func clientIP(r *http.Request) string {

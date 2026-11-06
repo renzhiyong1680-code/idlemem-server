@@ -6,6 +6,7 @@ package store
 
 import (
 	"encoding/json"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,11 +17,13 @@ import (
 
 // key 前缀命名空间。
 const (
-	nsNode   = "node:"
-	nsTenant = "tenant:"
-	nsOrder  = "order:"
-	nsShard  = "shard:"
-	nsUsage  = "usage:"
+	nsNode    = "node:"
+	nsTenant  = "tenant:"
+	nsOrder   = "order:"
+	nsShard   = "shard:"
+	nsUsage   = "usage:"
+	nsBase    = "baseline:"
+	nsInvoice = "invoice:"
 )
 
 // Store 控制面持久化存储。
@@ -386,6 +389,122 @@ func (s *Store) ListUsage(scope model.UsageScope) ([]*model.UsageRecord, error) 
 			if err == nil {
 				out = append(out, &r)
 			}
+			return true
+		})
+	})
+	return out, err
+}
+
+// ---------- 结算基线（账期出账用） ----------
+
+// Baseline 累计计量的已结算水位。
+type Baseline struct {
+	GBHours float64   `json:"gb_hours"`
+	At      time.Time `json:"at"`
+}
+
+func baselineKey(scope model.UsageScope, id string) string {
+	return nsBase + string(scope) + ":" + id
+}
+
+// GetBaseline 读取某对象的结算水位；不存在时返回零值。
+func (s *Store) GetBaseline(scope model.UsageScope, id string) (Baseline, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out Baseline
+	err := s.db.View(func(tx *buntdb.Tx) error {
+		raw, err := tx.Get(baselineKey(scope, id))
+		if err == buntdb.ErrNotFound {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		b, derr := decode[Baseline](raw)
+		if derr != nil {
+			return derr
+		}
+		out = b
+		return nil
+	})
+	return out, err
+}
+
+// SetBaselines 批量写入结算水位（单事务，避免出账中途部分生效）。
+func (s *Store) SetBaselines(items map[string]Baseline) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.db.Update(func(tx *buntdb.Tx) error {
+		for k, v := range items {
+			raw, err := encode(v)
+			if err != nil {
+				return err
+			}
+			if _, _, err := tx.Set(nsBase+k, raw, nil); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// ListBaselines 返回某范围全部对象的结算水位，key 为对象 ID。
+func (s *Store) ListBaselines(scope model.UsageScope) (map[string]Baseline, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string]Baseline{}
+	err := s.db.View(func(tx *buntdb.Tx) error {
+		prefix := nsBase + string(scope) + ":"
+		return tx.AscendKeys(prefix+"*", func(k, v string) bool {
+			b, err := decode[Baseline](v)
+			if err == nil {
+				out[strings.TrimPrefix(k, prefix)] = b
+			}
+			return true
+		})
+	})
+	return out, err
+}
+
+// ---------- 期账单 ----------
+
+// UpsertInvoice 写入期账单原始 JSON。
+func (s *Store) UpsertInvoice(id string, payload []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.db.Update(func(tx *buntdb.Tx) error {
+		_, _, err := tx.Set(nsInvoice+id, string(payload), nil)
+		return err
+	})
+}
+
+// GetInvoice 读取期账单原始 JSON；不存在时返回 nil。
+func (s *Store) GetInvoice(id string) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []byte
+	err := s.db.View(func(tx *buntdb.Tx) error {
+		raw, err := tx.Get(nsInvoice + id)
+		if err == buntdb.ErrNotFound {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		out = []byte(raw)
+		return nil
+	})
+	return out, err
+}
+
+// ListInvoices 返回全部期账单原始 JSON（按 ID 排序，即按生成时间排序）。
+func (s *Store) ListInvoices() ([][]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out [][]byte
+	err := s.db.View(func(tx *buntdb.Tx) error {
+		return tx.AscendKeys(nsInvoice+"*", func(k, v string) bool {
+			out = append(out, []byte(v))
 			return true
 		})
 	})

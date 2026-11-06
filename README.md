@@ -143,7 +143,7 @@ OK
 |---|---|---|
 | `api_addr` | `:8080` | REST API 监听地址 |
 | `gateway_addr` | `:6379` | Redis 网关监听地址 |
-| `db_path` | `idlemem-server.db` | 持久化数据库文件 |
+| `db_path` | `idlemem-server.db` | 持久化数据库文件；相对路径以**进程工作目录**为基准，systemd 部署请用绝对路径 |
 | `heartbeat_timeout` | `30s` | 心跳超时（超过判定离线） |
 | `heartbeat_evict_after` | `24h` | 离线节点清理周期 |
 | `default_replicas` | `1` | 默认分片副本数 |
@@ -255,6 +255,32 @@ go run ./examples/client -addr 127.0.0.1:6379 -token <tenant-token>
 
 计量记录持久化于 `idlemem-server.db`（`usage:*` 键空间），进程重启不丢失。
 
+## 账期出账（日结/月结）
+
+`GET /api/v1/billing` 是「截至此刻的累计快照」，供实时看板使用；真实出账走下面三个接口：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/v1/billing/settle` | 出一张期账单：结算「累计用量 − 已结算水位」的增量 |
+| GET | `/api/v1/billing/invoices` | 历史期账单列表（按生成时间升序） |
+| GET | `/api/v1/billing/invoices/{id}` | 单张期账单明细 |
+
+机制：
+
+- 累计计量只增不减，全部历史保留可查；出账用**水位（baseline）**标记已结算部分；
+- 因此可反复调用，按日、按月、或随时手工结一次都行，不会重复计费；
+- 没有新增用量时返回 `409 no unbilled usage in current period`，可直接当幂等成功处理；
+- 每张账单自带 `period_start`（上次结算时间，首次出账为空）、`period_end`、当时生效单价与完整明细，可直接归档给客户/节点。
+
+```bash
+# 出账
+curl -X POST http://127.0.0.1:8080/api/v1/billing/settle
+# 查历史
+curl http://127.0.0.1:8080/api/v1/billing/invoices
+```
+
+生产建议：用 cron 每日/每月调用一次 `settle`（例如 `0 2 * * *`），把返回的账单 JSON 归档到对象存储或财务系统。
+
 ## 目录结构
 
 ```
@@ -268,6 +294,7 @@ idlemem-server/
 │   ├── scheduler/         # 调度器（打分/分配/自愈）
 │   ├── meter/             # GB·h 计量（周期采样累加，计费/结算依据）
 │   ├── billing/           # 计费折算（GB·h → 客户账单/节点结算/佣金）
+│   ├── settle/            # 账期出账（增量结算 + 水位推进 + 期账单归档）
 │   ├── api/               # REST 管理 API
 │   └── gateway/           # Redis 协议网关（redcon）+ 节点转发（forward.go）
 ├── examples/client/       # 企业客户接入示例（零依赖 RESP 客户端）
