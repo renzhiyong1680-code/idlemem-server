@@ -3,9 +3,9 @@ module github.com/renzhiyong1680-code/idlemem-server
 go 1.27
 
 require (
+	github.com/renzhiyong1680-code/idlemem-core v0.1.0
 	github.com/tidwall/buntdb v1.3.2
 	github.com/tidwall/redcon v1.6.2
-	github.com/renzhiyong1680-code/idlemem-core v0.0.0-00010101000000-000000000000
 )
 
 require (
@@ -17,5 +17,3 @@ require (
 	github.com/tidwall/rtred v0.1.2 // indirect
 	github.com/tidwall/tinyqueue v0.1.1 // indirect
 )
-
-replace github.com/renzhiyong1680-code/idlemem-core => ../idlemem-core

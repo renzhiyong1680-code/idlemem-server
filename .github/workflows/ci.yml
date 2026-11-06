@@ -10,17 +10,11 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      # idlemem-server 的 go.mod 里有 replace 指向 ../idlemem-core，
-      # 所以两个仓库必须放到同级目录，否则构建直接失败。
+      # 核心库按版本号从模块代理拉取，本 job 只需检出本仓库。
       - name: checkout server
         uses: actions/checkout@v4
         with:
           path: src/idlemem-server
-      - name: checkout core
-        uses: actions/checkout@v4
-        with:
-          repository: renzhiyong1680-code/idlemem-core
-          path: src/idlemem-core
       - uses: actions/setup-go@v5
         with:
           go-version-file: src/idlemem-server/go.mod
@@ -48,6 +42,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: src/idlemem-server
+      # 出包时要额外编译核心库里的 agent 二进制，所以仍需要 core 源码目录。
       - name: checkout core
         uses: actions/checkout@v4
         with:
@@ -77,13 +72,26 @@ jobs:
               -o "$OUT/$name" "$pkg"
           }
 
+          # agent 属于核心库模块，进 core 目录单独构建，产物落到本仓库 dist
+          build_agent() {
+            os="$1"; arch="$2"
+            ext=""
+            if [ "$os" = "windows" ]; then ext=".exe"; fi
+            name="agent_${VERSION}_${os}_${arch}${ext}"
+            echo "building $name"
+            out="$PWD/$OUT/$name"
+            ( cd ../idlemem-core && CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+              go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "$out" ./cmd/xiancun-agent )
+          }
+
           # 三个程序 × 五个平台 = 15 个产物
           for target in linux_amd64 linux_arm64 windows_amd64 darwin_amd64 darwin_arm64; do
             os="${target%%_*}"
             arch="${target##*_}"
             build server ./cmd/server "$os" "$arch"
             build cli ./cmd/xiancun-cli "$os" "$arch"
-            build agent ../idlemem-core/cmd/xiancun-agent "$os" "$arch"
+            build_agent "$os" "$arch"
           done
 
           cd "$OUT"

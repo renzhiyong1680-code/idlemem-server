@@ -45,15 +45,15 @@
 
 ## 快速开始
 
-前置：Go 1.27+（以 `go.mod` 里的 `go` 指令为准），并且需要把两个仓库放在**同级目录**：
+前置：Go 1.27+（以 `go.mod` 里的 `go` 指令为准）。
 
 ```bash
-git clone https://github.com/renzhiyong1680-code/idlemem-core.git
 git clone https://github.com/renzhiyong1680-code/idlemem-server.git
+cd idlemem-server
 ```
 
-`go.mod` 里用 `replace github.com/renzhiyong1680-code/idlemem-core => ../idlemem-core` 指向同级目录，
-所以单独检出本仓库会编译失败——这是本地联合开发形态；正式发布时改为按版本号依赖（见下文"发版"）。
+核心库按版本号从模块代理拉取（`github.com/renzhiyong1680-code/idlemem-core v0.1.0`），
+单独检出本仓库即可编译，不需要把两个仓库放在同级目录。
 
 ```bash
 # 1. 构建
@@ -87,8 +87,10 @@ curl -X POST http://127.0.0.1:8080/api/v1/nodes/heartbeat \
 也可以直接运行 Agent 外壳（会自动注册 + 心跳 + KV 端口）：
 
 ```bash
-# 在 Agent 侧
-go run ../idlemem-core/cmd/xiancun-agent -server http://127.0.0.1:8080 -kv :16380
+# 在 Agent 侧：单独检出核心库后构建
+git clone https://github.com/renzhiyong1680-code/idlemem-core.git
+cd idlemem-core
+go run ./cmd/xiancun-agent -server http://127.0.0.1:8080 -kv :16380
 ```
 
 ### 第二步：创建租户（企业客户）
@@ -599,7 +601,7 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
 
 `.github/workflows/ci.yml` 分两档：
 
-- **每次提交**：`go vet` + `go test ./...` + `go build ./...`。因为 `go.mod` 里 `replace` 指向 `../idlemem-core`，工作流会把两个仓库检出到同级目录（`src/idlemem-server` 与 `src/idlemem-core`），否则构建直接失败；
+- **每次提交**：`go vet` + `go test ./...` + `go build ./...`。核心库按版本号从模块代理拉取，工作流只需检出本仓库；
 - **打 tag（`v*`）**：交叉编译 server / cli / agent × 五个平台共 15 个产物，生成 `SHA256SUMS` 并作为 artifact 上传。校验文件本身不参与哈希，避免自引用。
 
 `idlemem-core` 仓库有一套更轻的 `ci.yml`：`vet` + `test` + agent 的五平台交叉编译，用来守住"核心库不含平台相关代码"这条底线。
@@ -648,9 +650,9 @@ go test -race ./...    # 竞态检测
 
 ## 开源说明
 
-- 模块路径为占位 `github.com/renzhiyong1680-code/idlemem-server`；
-- 本地通过 `replace github.com/renzhiyong1680-code/idlemem-core => ../idlemem-core` 引用核心库；
-- 上传 GitHub 前请将模块路径、`replace` 与 git 身份改为自己的仓库信息。
+- 模块路径：`github.com/renzhiyong1680-code/idlemem-server`；
+- 核心库按版本号依赖：`github.com/renzhiyong1680-code/idlemem-core v0.1.0`；
+- 要升级核心库版本，改 `go.mod` 里的这一行 require 后执行 `go mod tidy` 即可，不需要本地 replace。
 
 ## License
 
