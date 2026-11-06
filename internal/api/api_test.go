@@ -12,6 +12,7 @@ import (
 
 	"github.com/xiancuncloud/idlemem-core/heartbeat"
 
+	"github.com/xiancuncloud/idlemem-server/internal/billing"
 	"github.com/xiancuncloud/idlemem-server/internal/model"
 	"github.com/xiancuncloud/idlemem-server/internal/node"
 	"github.com/xiancuncloud/idlemem-server/internal/scheduler"
@@ -28,7 +29,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 
 	reg := node.New(st, 30*time.Second, time.Hour)
 	sch := scheduler.New(st, reg, 1)
-	srv := New(st, reg, sch, nil, log.New(io.Discard, "", 0))
+	srv := New(st, reg, sch, nil, billing.Price{}, log.New(io.Discard, "", 0))
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts

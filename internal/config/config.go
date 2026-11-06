@@ -26,19 +26,27 @@ type Config struct {
 	DefaultTTL time.Duration `json:"default_ttl"`
 	// MeterInterval 计量采样周期（0 表示关闭计量）。
 	MeterInterval time.Duration `json:"meter_interval"`
+
+	// CustomerPricePerGBHour 客户计费单价（元/GB·h），<=0 用默认值。
+	CustomerPricePerGBHour float64 `json:"customer_price_per_gb_hour"`
+	// SupplierPricePerGBHour 节点供给结算单价（元/GB·h），<=0 用默认值。
+	SupplierPricePerGBHour float64 `json:"supplier_price_per_gb_hour"`
 }
 
 // Default 返回适用于本地开发/小规模内测的默认配置。
 func Default() Config {
 	return Config{
-		APIAddr:            ":8080",
-		GatewayAddr:        ":6379",
-		DBPath:             "idlemem-server.db",
-		HeartbeatTimeout:   30 * time.Second,
+		APIAddr:             ":8080",
+		GatewayAddr:         ":6379",
+		DBPath:              "idlemem-server.db",
+		HeartbeatTimeout:    30 * time.Second,
 		HeartbeatEvictAfter: 24 * time.Hour,
-		DefaultReplicas:    1,
-		DefaultTTL:         0,
-		MeterInterval:      60 * time.Second,
+		DefaultReplicas:     1,
+		DefaultTTL:          0,
+		MeterInterval:       60 * time.Second,
+
+		CustomerPricePerGBHour: 0.0004,
+		SupplierPricePerGBHour: 0.00032,
 	}
 }
 

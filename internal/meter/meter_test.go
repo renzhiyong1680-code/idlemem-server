@@ -34,11 +34,11 @@ func TestMeter_AccumulatesNodeAndTenant(t *testing.T) {
 	if err := st.UpsertNode(&model.Node{ID: "n2", Status: model.NodeOffline, CapacityBytes: 10 * GB}); err != nil {
 		t.Fatalf("upsert offline node: %v", err)
 	}
-	// 租户分片：4GB 活跃 + 2GB 丢失（不计）。
-	if err := st.UpsertShard(&model.Shard{ID: "s1", TenantID: "t1", Bytes: 4 * GB, Status: model.ShardActive}); err != nil {
+	// 租户分片：4GB 活跃（承载于 n1）+ 2GB 丢失（不计）。
+	if err := st.UpsertShard(&model.Shard{ID: "s1", TenantID: "t1", NodeID: "n1", Bytes: 4 * GB, Status: model.ShardActive}); err != nil {
 		t.Fatalf("upsert shard: %v", err)
 	}
-	if err := st.UpsertShard(&model.Shard{ID: "s2", TenantID: "t1", Bytes: 2 * GB, Status: model.ShardLost}); err != nil {
+	if err := st.UpsertShard(&model.Shard{ID: "s2", TenantID: "t1", NodeID: "n1", Bytes: 2 * GB, Status: model.ShardLost}); err != nil {
 		t.Fatalf("upsert shard: %v", err)
 	}
 
@@ -51,6 +51,16 @@ func TestMeter_AccumulatesNodeAndTenant(t *testing.T) {
 	wantNode := float64(10*GB) / GB * (time.Minute.Seconds() / 3600.0) // 10/60
 	if diff := rec.GBHours - wantNode; diff > 1e-9 || diff < -1e-9 {
 		t.Fatalf("node gb_hours = %v, want %v", rec.GBHours, wantNode)
+	}
+
+	// 节点承载维度：只计活跃分片 4GB × 1 分钟 = 4/60 GB·h（供给结算依据）。
+	used, err := st.GetUsage(model.UsageScopeNodeUsed, "n1")
+	if err != nil || used == nil {
+		t.Fatalf("node_used usage: %v, %v", used, err)
+	}
+	wantUsed := float64(4*GB) / GB * (time.Minute.Seconds() / 3600.0)
+	if diff := used.GBHours - wantUsed; diff > 1e-9 || diff < -1e-9 {
+		t.Fatalf("node_used gb_hours = %v, want %v", used.GBHours, wantUsed)
 	}
 
 	// 离线节点不应产生记录。

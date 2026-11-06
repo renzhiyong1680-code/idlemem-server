@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/xiancuncloud/idlemem-server/internal/api"
+	"github.com/xiancuncloud/idlemem-server/internal/billing"
 	"github.com/xiancuncloud/idlemem-server/internal/config"
 	"github.com/xiancuncloud/idlemem-server/internal/gateway"
 	"github.com/xiancuncloud/idlemem-server/internal/meter"
@@ -53,7 +54,11 @@ func main() {
 	mtr := meter.New(st, cfg.MeterInterval, logger)
 
 	// REST API。
-	apiSrv := api.New(st, reg, sch, mtr, logger)
+	price := billing.Price{
+		CustomerPerGBHour: cfg.CustomerPricePerGBHour,
+		SupplierPerGBHour: cfg.SupplierPricePerGBHour,
+	}.Normalize()
+	apiSrv := api.New(st, reg, sch, mtr, price, logger)
 	httpSrv := &http.Server{
 		Addr:    cfg.APIAddr,
 		Handler: apiSrv.Handler(),

@@ -1,8 +1,9 @@
 // Package meter 提供 GB·h 计量：周期采样在线容量并累计，供计费与供给结算。
 //
 // 计量口径：
-//   - 节点维度：在线节点的可贡献容量（CapacityBytes）× 在线时长，累计为 GB·h；
-//   - 租户维度：活跃分片容量（Shard.Bytes）× 时长，累计为 GB·h（客户计费依据）；
+//   - 节点维度：在线节点的可贡献容量（CapacityBytes）× 在线时长（供给能力指标）；
+//   - 节点承载维度：节点上活跃分片容量（Shard.Bytes）× 时长（供给结算依据，只对已售出容量付费）；
+//   - 租户维度：租户活跃分片容量（Shard.Bytes）× 时长（客户计费依据）；
 //   - 单位换算：GB = 1024^3 字节，h = 3600 秒。
 package meter
 
@@ -72,21 +73,29 @@ func (m *Meter) tick() {
 		m.accumulate(model.UsageScopeNode, n.ID, float64(n.CapacityBytes), hours)
 	}
 
-	// 租户维度：活跃分片容量（按租户归并）。
+	// 租户维度：活跃分片容量（按租户归并）；节点承载维度：活跃分片容量（按节点归并，供供给结算）。
 	shards, err := m.store.ListShards()
 	if err != nil {
 		m.logger.Printf("meter: list shards: %v", err)
 		return
 	}
 	byTenant := map[string]uint64{}
+	byNode := map[string]uint64{}
 	for _, sh := range shards {
 		if sh.Status != model.ShardActive {
 			continue
 		}
 		byTenant[sh.TenantID] += sh.Bytes
+		if sh.NodeID != "" {
+			byNode[sh.NodeID] += sh.Bytes
+		}
 	}
 	for tid, bytes := range byTenant {
 		m.accumulate(model.UsageScopeTenant, tid, float64(bytes), hours)
+	}
+	// 供给结算只对节点实际承载的容量付费：供大于求时不产生倒挂支出。
+	for nid, bytes := range byNode {
+		m.accumulate(model.UsageScopeNodeUsed, nid, float64(bytes), hours)
 	}
 }
 

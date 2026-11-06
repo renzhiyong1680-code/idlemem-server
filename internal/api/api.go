@@ -13,6 +13,7 @@ import (
 
 	"github.com/xiancuncloud/idlemem-core/heartbeat"
 
+	"github.com/xiancuncloud/idlemem-server/internal/billing"
 	"github.com/xiancuncloud/idlemem-server/internal/meter"
 	"github.com/xiancuncloud/idlemem-server/internal/model"
 	"github.com/xiancuncloud/idlemem-server/internal/node"
@@ -26,17 +27,19 @@ type Server struct {
 	registry  *node.Registry
 	scheduler *scheduler.Scheduler
 	meter     *meter.Meter
+	price     billing.Price
 	mux       *http.ServeMux
 	logger    *log.Logger
 }
 
-// New 创建 API 服务。
-func New(s *store.Store, reg *node.Registry, sch *scheduler.Scheduler, mtr *meter.Meter, logger *log.Logger) *Server {
+// New 创建 API 服务。price 为全零值时使用默认单价。
+func New(s *store.Store, reg *node.Registry, sch *scheduler.Scheduler, mtr *meter.Meter, price billing.Price, logger *log.Logger) *Server {
 	srv := &Server{
 		store:     s,
 		registry:  reg,
 		scheduler: sch,
 		meter:     mtr,
+		price:     price.Normalize(),
 		logger:    logger,
 		mux:       http.NewServeMux(),
 	}
@@ -64,6 +67,9 @@ func (s *Server) routes() {
 	// 计量（GB·h，计费依据）
 	s.mux.HandleFunc("GET /api/v1/usage/nodes", s.handleUsageNodes)
 	s.mux.HandleFunc("GET /api/v1/usage/tenants", s.handleUsageTenants)
+
+	// 计费账单（GB·h 折算金额：客户账单/节点结算/平台佣金）
+	s.mux.HandleFunc("GET /api/v1/billing", s.handleBilling)
 
 	// 健康检查与概览
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -277,9 +283,9 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 			"capacity":  totalCap,
 			"used":      usedCap,
 		},
-		"orders":  len(orders),
-		"shards":  len(shards),
-		"time":    time.Now().Format(time.RFC3339),
+		"orders": len(orders),
+		"shards": len(shards),
+		"time":   time.Now().Format(time.RFC3339),
 	})
 }
 
@@ -319,6 +325,32 @@ func (s *Server) handleUsageTenants(w http.ResponseWriter, r *http.Request) {
 		recs = []*model.UsageRecord{}
 	}
 	writeJSON(w, http.StatusOK, recs)
+}
+
+// handleBilling 返回按单价折算的计费报告（客户账单/节点结算/平台佣金）。
+func (s *Server) handleBilling(w http.ResponseWriter, r *http.Request) {
+	if s.meter == nil {
+		writeError(w, http.StatusServiceUnavailable, "metering not enabled")
+		return
+	}
+	tenantUsage, err := s.meter.Snapshot(model.UsageScopeTenant)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "tenant usage: "+err.Error())
+		return
+	}
+	nodeUsage, err := s.meter.Snapshot(model.UsageScopeNode)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "node usage: "+err.Error())
+		return
+	}
+	nodeUsed, err := s.meter.Snapshot(model.UsageScopeNodeUsed)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "node used usage: "+err.Error())
+		return
+	}
+	rep := billing.Compute(s.price, tenantUsage, nodeUsed, nodeUsage)
+	rep.GeneratedAt = time.Now().Format(time.RFC3339)
+	writeJSON(w, http.StatusOK, rep)
 }
 
 func clientIP(r *http.Request) string {

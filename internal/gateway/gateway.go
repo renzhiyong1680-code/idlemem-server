@@ -25,11 +25,11 @@ const MaxCommandsPerSec = 1000
 
 // Gateway Redis 协议网关。
 type Gateway struct {
-	addr     string
-	store    *store.Store // 控制面元数据（租户校验、分片查询）
-	cache    *buntdb.DB   // 内存缓存数据
-	srv      *redcon.Server
-	logger   *log.Logger
+	addr   string
+	store  *store.Store // 控制面元数据（租户校验、分片查询）
+	cache  *buntdb.DB   // 内存缓存数据
+	srv    *redcon.Server
+	logger *log.Logger
 }
 
 // New 创建网关。cachePath 为空时使用纯内存缓存。

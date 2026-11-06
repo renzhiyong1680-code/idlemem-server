@@ -131,8 +131,9 @@ OK
 | POST | `/api/v1/orders` | 创建订单并分配分片（无可用节点返回 503） |
 | GET | `/api/v1/orders` | 订单列表 |
 | GET | `/api/v1/shard` | 分片列表 |
-| GET | `/api/v1/usage/nodes` | 节点维度 GB·h 计量（供给结算依据） |
-| GET | `/api/v1/usage/tenants` | 租户维度 GB·h 计量（客户计费依据） |
+| GET | `/api/v1/usage/nodes` | 节点在线容量 GB·h 计量（供给能力参考） |
+| GET | `/api/v1/usage/tenants` | 租户活跃分片 GB·h 计量（客户计费依据） |
+| GET | `/api/v1/billing` | 计费报告：客户账单 + 节点结算 + 平台佣金 |
 | GET | `/api/v1/summary` | 平台概览（节点/容量/订单/分片统计） |
 | GET | `/healthz` | 健康检查 |
 
@@ -148,6 +149,8 @@ OK
 | `default_replicas` | `1` | 默认分片副本数 |
 | `default_ttl` | `0` | 网关 KV 默认 TTL（0=不过期） |
 | `meter_interval` | `60s` | GB·h 计量采样周期（0=关闭计量） |
+| `customer_price_per_gb_hour` | `0.0004` | 客户计费单价（元/GB·h），<=0 用默认 |
+| `supplier_price_per_gb_hour` | `0.00032` | 节点供给结算单价（元/GB·h），<=0 用默认 |
 
 配置文件示例 `config.json`：
 
@@ -160,7 +163,9 @@ OK
   "heartbeat_evict_after": 86400000000000,
   "default_replicas": 1,
   "default_ttl": 0,
-  "meter_interval": 60000000000
+  "meter_interval": 60000000000,
+  "customer_price_per_gb_hour": 0.0004,
+  "supplier_price_per_gb_hour": 0.00032
 }
 ```
 
@@ -214,21 +219,39 @@ go run ./examples/client -addr 127.0.0.1:6379 -token <tenant-token>
 - 容量治理：写入超出节点可用容量会返回 `ERR out of capacity`；
 - 计费：按活跃分片容量的 **GB·h** 计量（见上方计量章节）。
 
-## GB·h 计量（计费/结算）
+## GB·h 计量与计费（结算）
 
 后台按 `meter_interval`（默认 60s）周期采样并累计 **GB·h**（1 GB 保持 1 小时）：
 
-- **节点维度**：在线节点的可贡献容量 × 在线时长 → 供给者结算依据；
-- **租户维度**：活跃分片容量 × 时长 → 企业客户计费依据；
-- 查询：`GET /api/v1/usage/nodes`、`GET /api/v1/usage/tenants`。
+- **节点维度**（`usage/nodes`）：在线节点的可贡献容量 × 在线时长 → **供给能力指标**（不直接结算）；
+- **节点承载维度**（`node_used`）：节点上活跃分片容量 × 时长 → **供给者结算依据**（只对已售出并实际承载的容量付费，供大于求时不会倒挂）；
+- **租户维度**（`usage/tenants`）：租户活跃分片容量 × 时长 → **企业客户计费依据**。
+
+计费报告：`GET /api/v1/billing` 一次返回客户账单、节点结算单与平台佣金（单价来自配置 `customer_price_per_gb_hour` / `supplier_price_per_gb_hour`）。
 
 商业口径示例（见《闲存云商业计划书》）：
 
 | 角色 | 单价（元/GB·h） | 计量来源 |
 |---|---|---|
-| 企业客户 | 0.0004 | `usage/tenants` |
-| 供给者结算 | 0.00032 | `usage/nodes` |
-| 平台佣金 | 0.00008（≈20%） | 差值 |
+| 企业客户 | 0.0004 | `tenant`（活跃分片） |
+| 供给者结算 | 0.00032 | `node_used`（承载分片） |
+| 平台佣金 | 0.00008（≈20%） | 客户收入 − 供给支出 |
+
+账单响应结构（节选）：
+
+```json
+{
+  "price": {"customer_per_gb_hour": 0.0004, "supplier_per_gb_hour": 0.00032},
+  "tenants": [{"tenant_id": "id-...", "gb_hours": 0.0111, "amount_cny": 0.0000044}],
+  "nodes": [{"node_id": "a512...", "gb_hours": 0.0111, "payout_cny": 0.0000036}],
+  "totals": {
+    "tenant_gb_hours": 0.0111, "node_gb_hours": 0.0111,
+    "supply_gb_hours": 0.0699, "customer_revenue_cny": 0.0000044,
+    "supplier_payout_cny": 0.0000036, "commission_cny": 0.00000089
+  },
+  "generated_at": "2026-11-06T11:19:12+08:00"
+}
+```
 
 计量记录持久化于 `idlemem-server.db`（`usage:*` 键空间），进程重启不丢失。
 
@@ -244,6 +267,7 @@ idlemem-server/
 │   ├── node/              # 节点注册表（注册/心跳/超时判定/清扫）
 │   ├── scheduler/         # 调度器（打分/分配/自愈）
 │   ├── meter/             # GB·h 计量（周期采样累加，计费/结算依据）
+│   ├── billing/           # 计费折算（GB·h → 客户账单/节点结算/佣金）
 │   ├── api/               # REST 管理 API
 │   └── gateway/           # Redis 协议网关（redcon）+ 节点转发（forward.go）
 ├── examples/client/       # 企业客户接入示例（零依赖 RESP 客户端）

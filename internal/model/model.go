@@ -19,28 +19,28 @@ const (
 
 // Node 一个贡献节点（对应 Agent 端）。
 type Node struct {
-	ID            string    `json:"id"`
-	IP            string    `json:"ip"`
-	Version       string    `json:"version"`
+	ID            string     `json:"id"`
+	IP            string     `json:"ip"`
+	Version       string     `json:"version"`
 	Status        NodeStatus `json:"status"`
-	CapacityBytes uint64    `json:"capacity_bytes"`  // 当前可贡献容量
-	UsedBytes     uint64    `json:"used_bytes"`      // KV 节点实际占用
-	SystemUsedPct float64   `json:"system_used_pct"` // 本机内存使用率
-	TotalBytes    uint64    `json:"total_bytes"`     // 本机物理内存
-	Score         float64   `json:"score"`           // 信誉分
-	HeartbeatCnt  uint64    `json:"heartbeat_cnt"`   // 连续心跳次数
-	KVAddr        string    `json:"kv_addr"`         // 节点 KV 服务监听地址（网关转发用）
-	LastSeen      time.Time `json:"last_seen"`
-	FirstSeen     time.Time `json:"first_seen"`
+	CapacityBytes uint64     `json:"capacity_bytes"`  // 当前可贡献容量
+	UsedBytes     uint64     `json:"used_bytes"`      // KV 节点实际占用
+	SystemUsedPct float64    `json:"system_used_pct"` // 本机内存使用率
+	TotalBytes    uint64     `json:"total_bytes"`     // 本机物理内存
+	Score         float64    `json:"score"`           // 信誉分
+	HeartbeatCnt  uint64     `json:"heartbeat_cnt"`   // 连续心跳次数
+	KVAddr        string     `json:"kv_addr"`         // 节点 KV 服务监听地址（网关转发用）
+	LastSeen      time.Time  `json:"last_seen"`
+	FirstSeen     time.Time  `json:"first_seen"`
 }
 
 // Tenant 租户（企业客户）。
 type Tenant struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Token     string    `json:"token"`
-	QuotaBytes uint64   `json:"quota_bytes"` // 配额上限，0 不限制
-	CreatedAt time.Time `json:"created_at"`
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	Token      string    `json:"token"`
+	QuotaBytes uint64    `json:"quota_bytes"` // 配额上限，0 不限制
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // OrderStatus 订单状态。
@@ -67,30 +67,32 @@ type Order struct {
 type ShardStatus string
 
 const (
-	ShardActive   ShardStatus = "active"
-	ShardDegraded ShardStatus = "degraded"
+	ShardActive    ShardStatus = "active"
+	ShardDegraded  ShardStatus = "degraded"
 	ShardMigrating ShardStatus = "migrating"
-	ShardLost     ShardStatus = "lost"
+	ShardLost      ShardStatus = "lost"
 )
 
 // Shard 一个分片：订单容量切分到具体节点的分配单元。
 type Shard struct {
-	ID        string      `json:"id"`
-	OrderID   string      `json:"order_id"`
-	TenantID  string      `json:"tenant_id"`
-	NodeID    string      `json:"node_id"`
-	KeyPrefix string      `json:"key_prefix"` // 归属该分片的 key 前缀
-	Bytes     uint64      `json:"bytes"`      // 分片容量
-	Status    ShardStatus `json:"status"`
-	AssignedAt time.Time  `json:"assigned_at"`
+	ID         string      `json:"id"`
+	OrderID    string      `json:"order_id"`
+	TenantID   string      `json:"tenant_id"`
+	NodeID     string      `json:"node_id"`
+	KeyPrefix  string      `json:"key_prefix"` // 归属该分片的 key 前缀
+	Bytes      uint64      `json:"bytes"`      // 分片容量
+	Status     ShardStatus `json:"status"`
+	AssignedAt time.Time   `json:"assigned_at"`
 }
 
 // UsageScope 计量对象范围。
 type UsageScope string
 
 const (
-	// UsageScopeNode 节点维度：按节点在线可贡献容量 × 时长累计。
+	// UsageScopeNode 节点维度：按节点在线可贡献容量 × 时长累计（供给能力指标）。
 	UsageScopeNode UsageScope = "node"
+	// UsageScopeNodeUsed 节点承载维度：按节点实际承载的活跃分片容量 × 时长累计（供给结算依据）。
+	UsageScopeNodeUsed UsageScope = "node_used"
 	// UsageScopeTenant 租户维度：按租户活跃分片容量 × 时长累计（计费依据）。
 	UsageScopeTenant UsageScope = "tenant"
 )
