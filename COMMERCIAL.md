@@ -45,7 +45,9 @@ AGPL-3.0 允许免费使用、修改、分发，包括商业用途。但它有�
 
 ## 五、如何联系
 
-通过本仓库 Issues 提交商业授权咨询，或联系 GitHub 账号 [@renzhiyong1680-code](https://github.com/renzhiyong1680-code)。
+商业授权咨询邮箱：**renzhiyong1680@icloud.com**，这是项目方对外正式联系方式，报价、合同、收款账户与主体信息都走这里。
+
+也可以在仓库 Issues 里提技术性问题，或联系 GitHub 账号 [@renzhiyong1680-code](https://github.com/renzhiyong1680-code)。**涉及价格、合同、发票、主体信息的内容请走邮箱，不要发在公开 Issue 里。**
 
 咨询时建议说明这四项，信息越具体，评估越快：
 
