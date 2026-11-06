@@ -6,3 +6,5 @@
 *.json    text eol=lf
 *.mod     text eol=lf
 *.sum     text eol=lf
+Dockerfile       text eol=lf
+docker-compose.yml text eol=lf
