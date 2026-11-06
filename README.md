@@ -203,26 +203,50 @@ curl -X POST http://127.0.0.1:8080/api/v1/tenants/<id>/resume
 
 ## 企业客户接入
 
-网关对外暴露**标准 Redis 协议**（默认 `:6379`），任何 Redis 客户端（`redis-cli`、各语言 SDK）均可直接接入，无需专用 SDK：
+网关对外暴露**标准 Redis 协议**（默认 `:6379`），任何 Redis 客户端（`redis-cli`、各语言 SDK）均可直接接入。
+
+认证是**连接级状态**：同一条连接 AUTH 一次即可，之后命令免重复认证。
 
 ```bash
-# 1. 认证（连接级状态：同一连接内后续命令免重复认证）
 redis-cli -h gateway.example.com -p 6379 AUTH <tenant-token>
-
-# 2. 读写（key 建议带租户前缀；TTL 由平台 Best-Effort 策略治理）
 SET tenant:hot_config '{"feature":"a"}' EX 300
 GET tenant:hot_config
 TTL  tenant:hot_config
 DEL  tenant:hot_config
 ```
 
-仓库自带一个**零依赖示例客户端**（纯标准库手写 RESP，展示完整接入步骤）：
+### Go 项目：官方 SDK（推荐）
 
-```bash
-go run ./examples/client -addr 127.0.0.1:6379 -token <tenant-token>
+平台提供 Go SDK 包 `github.com/xiancuncloud/idlemem-server/client`，封装连接、鉴权、超时、重连与错误语义：
+
+```go
+c, err := client.Dial("127.0.0.1:6379", token)
+if err != nil {
+	log.Fatal(err)
+}
+defer c.Close()
+
+ctx := context.Background()
+if err := c.Set(ctx, "user:1", []byte(`{"name":"alice"}`), time.Minute); err != nil {
+	log.Fatal(err)
+}
+v, err := c.Get(ctx, "user:1")          // 键不存在返回 client.ErrNotFound
+ttl, _ := c.TTL(ctx, "user:1")
+n, _ := c.Del(ctx, "user:1")
 ```
 
-输出示例：
+SDK 行为要点：
+
+- 网络中断自动重连并重新 AUTH，然后重放一次命令（支持的命令均为幂等）；
+- 鉴权失败（token 错误、租户停服）**立即返回错误不重试**，避免掩盖问题；
+- 单连接串行化保证并发安全；高并发场景用 `client.NewPool(addr, token, 8)` 分发。
+
+示例：`go run ./examples/sdk -addr 127.0.0.1:6379 -token <tenant-token>`
+
+### 其他语言 / 无 SDK 场景
+
+协议是标准 RESP，直接用手写客户端也能接。仓库另带一个**零依赖示例**（纯标准库手写 RESP，展示协议原貌）：
+`go run ./examples/client -addr 127.0.0.1:6379 -token <tenant-token>`
 
 ```
 [client] auth: ok (token=05****************************6e)
@@ -236,7 +260,7 @@ go run ./examples/client -addr 127.0.0.1:6379 -token <tenant-token>
 
 - 数据为**分布式 KV 缓存**：节点随时可能离线，多副本可降低丢失概率，但不保证持久化；
 - **不要存放敏感数据**（密钥、个人信息等），企业客户应仅缓存可重算的临时数据；
-- 容量治理：写入超出节点可用容量会返回 `ERR out of capacity`；
+- 容量治理：写入超出节点可用容量会返回 `ERR out of capacity`（覆盖同一 key 时旧值先释放，不会被误判）；
 - 计费：按活跃分片容量的 **GB·h** 计量（见上方计量章节）。
 
 ## GB·h 计量与计费（结算）
