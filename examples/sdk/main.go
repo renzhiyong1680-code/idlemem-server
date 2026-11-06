@@ -17,7 +17,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/xiancuncloud/idlemem-server/client"
+	"github.com/renzhiyong1680-code/idlemem-server/client"
 )
 
 func main() {

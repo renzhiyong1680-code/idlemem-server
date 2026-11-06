@@ -10,7 +10,7 @@ import (
 
 	"github.com/tidwall/redcon"
 
-	"github.com/xiancuncloud/idlemem-server/internal/model"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/model"
 )
 
 const tenantSnapTTL = 10 * time.Second

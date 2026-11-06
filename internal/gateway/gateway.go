@@ -16,8 +16,8 @@ import (
 	"github.com/tidwall/buntdb"
 	"github.com/tidwall/redcon"
 
-	"github.com/xiancuncloud/idlemem-server/internal/model"
-	"github.com/xiancuncloud/idlemem-server/internal/store"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/model"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/store"
 )
 
 // MaxCommandsPerSec 单连接每秒命令数上限（简单限流）。

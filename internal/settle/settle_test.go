@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiancuncloud/idlemem-server/internal/billing"
-	"github.com/xiancuncloud/idlemem-server/internal/model"
-	"github.com/xiancuncloud/idlemem-server/internal/store"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/billing"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/model"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/store"
 )
 
 func newTestSettler(t *testing.T) (*Settler, *store.Store) {

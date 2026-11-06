@@ -19,14 +19,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/xiancuncloud/idlemem-server/internal/api"
-	"github.com/xiancuncloud/idlemem-server/internal/billing"
-	"github.com/xiancuncloud/idlemem-server/internal/config"
-	"github.com/xiancuncloud/idlemem-server/internal/gateway"
-	"github.com/xiancuncloud/idlemem-server/internal/meter"
-	"github.com/xiancuncloud/idlemem-server/internal/node"
-	"github.com/xiancuncloud/idlemem-server/internal/scheduler"
-	"github.com/xiancuncloud/idlemem-server/internal/store"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/api"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/billing"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/config"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/gateway"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/meter"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/node"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/scheduler"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/store"
 )
 
 // version 由构建脚本通过 -ldflags "-X main.version=..." 注入。

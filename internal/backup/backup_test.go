@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiancuncloud/idlemem-server/internal/model"
-	"github.com/xiancuncloud/idlemem-server/internal/store"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/model"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/store"
 )
 
 func openStore(t *testing.T) *store.Store {

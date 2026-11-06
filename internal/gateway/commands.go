@@ -10,7 +10,7 @@ import (
 	"github.com/tidwall/buntdb"
 	"github.com/tidwall/redcon"
 
-	"github.com/xiancuncloud/idlemem-server/internal/model"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/model"
 )
 
 // lookup 取一个键的值：先查本地缓存，未命中再回源到承载节点。

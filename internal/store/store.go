@@ -12,7 +12,7 @@ import (
 
 	"github.com/tidwall/buntdb"
 
-	"github.com/xiancuncloud/idlemem-server/internal/model"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/model"
 )
 
 // key 前缀命名空间。

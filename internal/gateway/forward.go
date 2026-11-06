@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiancuncloud/idlemem-server/internal/model"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/model"
 )
 
 // 转发超时：单个节点不可达时快速失败，避免拖垮网关连接。

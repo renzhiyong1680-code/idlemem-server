@@ -11,7 +11,7 @@ package billing
 import (
 	"sort"
 
-	"github.com/xiancuncloud/idlemem-server/internal/model"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/model"
 )
 
 // Price 计费单价（元/GB·h）。

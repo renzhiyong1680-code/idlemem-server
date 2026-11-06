@@ -6,7 +6,7 @@
 
 [Unit]
 Description=XianCun Cloud - idlemem-server (control plane)
-Documentation=https://github.com/xiancuncloud/idlemem-server
+Documentation=https://github.com/renzhiyong1680-code/idlemem-server
 After=network-online.target
 Wants=network-online.target
 

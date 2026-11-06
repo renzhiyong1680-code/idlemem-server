@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiancuncloud/idlemem-server/client"
+	"github.com/renzhiyong1680-code/idlemem-server/client"
 )
 
 const usageText = `闲存云 CLI

@@ -8,9 +8,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/xiancuncloud/idlemem-server/internal/model"
-	"github.com/xiancuncloud/idlemem-server/internal/node"
-	"github.com/xiancuncloud/idlemem-server/internal/store"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/model"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/node"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/store"
 )
 
 // Scheduler 调度器：消费订单，把容量分片分配到最优节点。

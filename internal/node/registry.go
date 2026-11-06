@@ -4,10 +4,10 @@ package node
 import (
 	"time"
 
-	"github.com/xiancuncloud/idlemem-core/heartbeat"
+	"github.com/renzhiyong1680-code/idlemem-core/heartbeat"
 
-	"github.com/xiancuncloud/idlemem-server/internal/model"
-	"github.com/xiancuncloud/idlemem-server/internal/store"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/model"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/store"
 )
 
 // Registry 节点注册表：负责节点的增删改查与状态判定。

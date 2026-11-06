@@ -13,8 +13,8 @@ import (
 
 	"github.com/tidwall/buntdb"
 
-	"github.com/xiancuncloud/idlemem-server/internal/model"
-	"github.com/xiancuncloud/idlemem-server/internal/store"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/model"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/store"
 )
 
 // respClient 最小 RESP 协议客户端（仅测试用，避免引入 redis 客户端依赖）。

@@ -1,11 +1,11 @@
-module github.com/xiancuncloud/idlemem-server
+module github.com/renzhiyong1680-code/idlemem-server
 
 go 1.27
 
 require (
 	github.com/tidwall/buntdb v1.3.2
 	github.com/tidwall/redcon v1.6.2
-	github.com/xiancuncloud/idlemem-core v0.0.0-00010101000000-000000000000
+	github.com/renzhiyong1680-code/idlemem-core v0.0.0-00010101000000-000000000000
 )
 
 require (
@@ -18,4 +18,4 @@ require (
 	github.com/tidwall/tinyqueue v0.1.1 // indirect
 )
 
-replace github.com/xiancuncloud/idlemem-core => ../idlemem-core
+replace github.com/renzhiyong1680-code/idlemem-core => ../idlemem-core

@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/xiancuncloud/idlemem-server/internal/model"
+	"github.com/renzhiyong1680-code/idlemem-server/internal/model"
 )
 
 func rec(scope model.UsageScope, id string, gbHours float64) *model.UsageRecord {
