@@ -30,6 +30,7 @@ type Gateway struct {
 	cache  *buntdb.DB   // 内存缓存数据
 	srv    *redcon.Server
 	logger *log.Logger
+	quota  *quotaState // 租户已写字节 / 已购容量
 }
 
 // New 创建网关。cachePath 为空时使用纯内存缓存。
@@ -46,6 +47,7 @@ func New(addr string, s *store.Store, cachePath string, logger *log.Logger) (*Ga
 		store:  s,
 		cache:  db,
 		logger: logger,
+		quota:  newQuotaState(),
 	}
 	g.srv = redcon.NewServer(addr, g.handle, g.accept, g.closed)
 	return g, nil
@@ -174,11 +176,25 @@ func (g *Gateway) handleSet(conn redcon.Conn, args []string) {
 	}
 	nsKey := namespaceKey(t, key)
 
+	// 容量闸门：按"已购容量"限制租户真正能存多少字节，覆盖写按净增量计算。
+	var oldLen int
+	_ = g.cache.View(func(tx *buntdb.Tx) error {
+		if v, err := tx.Get(nsKey); err == nil {
+			oldLen = len(v)
+		}
+		return nil
+	})
+	delta, err := g.checkSet(t, oldLen, len(value))
+	if err != nil {
+		conn.WriteError("ERR " + err.Error())
+		return
+	}
+
 	var opts *buntdb.SetOptions
 	if ttl > 0 {
 		opts = &buntdb.SetOptions{Expires: true, TTL: ttl}
 	}
-	err := g.cache.Update(func(tx *buntdb.Tx) error {
+	err = g.cache.Update(func(tx *buntdb.Tx) error {
 		_, _, err := tx.Set(nsKey, value, opts)
 		return err
 	})
@@ -186,6 +202,7 @@ func (g *Gateway) handleSet(conn redcon.Conn, args []string) {
 		conn.WriteError("ERR " + err.Error())
 		return
 	}
+	g.commit(t.ID, delta)
 
 	// 数据面：转发到在线承载节点（多副本写入）。
 	nodes, err := g.onlineShardNodes(t.ID)
@@ -247,14 +264,20 @@ func (g *Gateway) handleDel(conn redcon.Conn, args []string) {
 		return
 	}
 	count := 0
+	var released int64
 	_ = g.cache.Update(func(tx *buntdb.Tx) error {
 		for _, k := range args[1:] {
-			if _, err := tx.Delete(namespaceKey(t, k)); err == nil {
+			nk := namespaceKey(t, k)
+			if v, err := tx.Get(nk); err == nil {
+				released += int64(len(v))
+			}
+			if _, err := tx.Delete(nk); err == nil {
 				count++
 			}
 		}
 		return nil
 	})
+	g.commit(t.ID, -released)
 	nodes, err := g.onlineShardNodes(t.ID)
 	if err == nil && len(nodes) > 0 {
 		for _, k := range args[1:] {

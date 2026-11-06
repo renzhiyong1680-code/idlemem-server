@@ -98,7 +98,7 @@ func main() {
 	defer stop()
 
 	// 启动后台扫描：节点超时清扫 + 分片自愈。
-	go backgroundLoop(ctx, reg, sch, cfg.HeartbeatTimeout, logger)
+	go backgroundLoop(ctx, reg, sch, cfg.HeartbeatTimeout, gw, logger)
 
 	// 启动 GB·h 计量（周期采样在线容量）。
 	if cfg.MeterInterval > 0 {
@@ -133,7 +133,7 @@ func main() {
 }
 
 // backgroundLoop 周期性执行节点清扫与分片自愈。
-func backgroundLoop(ctx context.Context, reg *node.Registry, sch *scheduler.Scheduler, interval time.Duration, logger *log.Logger) {
+func backgroundLoop(ctx context.Context, reg *node.Registry, sch *scheduler.Scheduler, interval time.Duration, gw *gateway.Gateway, logger *log.Logger) {
 	// 心跳超时的一半作为扫描间隔。
 	if interval <= 0 {
 		interval = 15 * time.Second
@@ -141,7 +141,13 @@ func backgroundLoop(ctx context.Context, reg *node.Registry, sch *scheduler.Sche
 	ticker := time.NewTicker(interval / 2)
 	defer ticker.Stop()
 
+	round := 0
 	runOnce := func() {
+		round++
+		// 每 4 轮（约 1 分钟）校准一次租户已写字节，纠正 TTL 过期造成的计数漂移。
+		if gw != nil && round%4 == 0 {
+			gw.RecountUsage()
+		}
 		offline, evicted, err := reg.Sweep()
 		if err != nil {
 			logger.Printf("sweep error: %v", err)
