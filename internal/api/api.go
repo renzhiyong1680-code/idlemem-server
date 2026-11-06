@@ -244,9 +244,10 @@ func (s *Server) handleResumeTenant(w http.ResponseWriter, r *http.Request) {
 // ---------- 订单 ----------
 
 type createOrderReq struct {
-	TenantID      string `json:"tenant_id"`
-	CapacityBytes uint64 `json:"capacity_bytes"`
-	Replicas      int    `json:"replicas"`
+	TenantID      string  `json:"tenant_id"`
+	CapacityBytes uint64  `json:"capacity_bytes"`
+	Replicas      int     `json:"replicas"`
+	ExpireHours   float64 `json:"expire_hours"` // >0 时到期自动释放容量；0 表示长期
 }
 
 func (s *Server) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
@@ -298,6 +299,9 @@ func (s *Server) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 		Replicas:      req.Replicas,
 		Status:        model.OrderActive,
 		CreatedAt:     time.Now(),
+	}
+	if req.ExpireHours > 0 {
+		o.ExpireAt = time.Now().Add(time.Duration(req.ExpireHours * float64(time.Hour)))
 	}
 	if err := s.store.UpsertOrder(o); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

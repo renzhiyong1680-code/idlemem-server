@@ -57,6 +57,59 @@ func heartbeatNode(t *testing.T, reg *node.Registry, id string, capBytes uint64)
 	}
 }
 
+// TestReleaseExpired 验证到期订单的分片被删除、节点已用容量退回、订单置为 expired。
+func TestReleaseExpired(t *testing.T) {
+	st, _, sch := newTestEnv(t)
+	addNode(t, st, "node-a", 8<<30, 100)
+
+	now := time.Now()
+	o := &model.Order{
+		ID:            "order-exp",
+		TenantID:      "tenant-1",
+		CapacityBytes: 1 << 30,
+		Replicas:      1,
+		Status:        model.OrderActive,
+		CreatedAt:     now.Add(-2 * time.Hour),
+		ExpireAt:      now.Add(-time.Hour), // 已过期
+	}
+	if _, err := sch.PlaceOrder(o); err != nil {
+		t.Fatalf("place: %v", err)
+	}
+	shards, _ := st.ListShardsByOrder(o.ID)
+	if len(shards) != 1 {
+		t.Fatalf("shards = %d, want 1", len(shards))
+	}
+	before, _ := st.GetNode("node-a")
+	if before.UsedBytes == 0 {
+		t.Fatal("node used bytes should increase after placement")
+	}
+
+	orders, released, err := sch.ReleaseExpired(now)
+	if err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	if orders != 1 || released != 1 {
+		t.Fatalf("released orders/shards = %d/%d, want 1/1", orders, released)
+	}
+
+	after, _ := st.GetNode("node-a")
+	if after.UsedBytes != 0 {
+		t.Fatalf("node used = %d, want 0 after release", after.UsedBytes)
+	}
+	if left, _ := st.ListShardsByOrder(o.ID); len(left) != 0 {
+		t.Fatalf("shards left = %d, want 0", len(left))
+	}
+	got, _ := st.GetOrder(o.ID)
+	if got.Status != model.OrderExpired {
+		t.Fatalf("order status = %v, want expired", got.Status)
+	}
+
+	// 幂等：再跑一次不应重复回收。
+	if orders2, _, _ := sch.ReleaseExpired(now); orders2 != 0 {
+		t.Fatalf("second release = %d, want 0", orders2)
+	}
+}
+
 func TestPlaceOrder_PicksHighestScoreNode(t *testing.T) {
 	st, reg, sch := newTestEnv(t)
 	_ = reg

@@ -91,6 +91,51 @@ func (sc *Scheduler) PlaceOrder(o *model.Order) ([]*model.Shard, error) {
 	return shards, nil
 }
 
+// ReleaseExpired 回收已到期的订单：删除其全部分片、退回节点已用容量，
+// 并把订单置为 expired。返回回收的订单数与分片数。
+//
+// 释放是幂等的：已 expired 的订单不会被重复处理。
+func (sc *Scheduler) ReleaseExpired(now time.Time) (int, int, error) {
+	orders, err := sc.store.ListOrders()
+	if err != nil {
+		return 0, 0, err
+	}
+
+	releasedOrders, releasedShards := 0, 0
+	for _, o := range orders {
+		if o.Status == model.OrderExpired || o.ExpireAt.IsZero() || now.Before(o.ExpireAt) {
+			continue
+		}
+		shards, serr := sc.store.ListShardsByOrder(o.ID)
+		if serr != nil {
+			return releasedOrders, releasedShards, serr
+		}
+		for _, sh := range shards {
+			// 退回节点已用容量（不低零，避免与 Agent 上报的实际占用冲突）。
+			if n, gerr := sc.store.GetNode(sh.NodeID); gerr == nil && n != nil {
+				if n.UsedBytes >= sh.Bytes {
+					n.UsedBytes -= sh.Bytes
+				} else {
+					n.UsedBytes = 0
+				}
+				if uerr := sc.store.UpsertNode(n); uerr != nil {
+					return releasedOrders, releasedShards, uerr
+				}
+			}
+			if derr := sc.store.DeleteShard(sh.ID); derr != nil {
+				return releasedOrders, releasedShards, derr
+			}
+			releasedShards++
+		}
+		o.Status = model.OrderExpired
+		if uerr := sc.store.UpsertOrder(o); uerr != nil {
+			return releasedOrders, releasedShards, uerr
+		}
+		releasedOrders++
+	}
+	return releasedOrders, releasedShards, nil
+}
+
 // Rebalance 扫描异常分片并自愈：
 //   - 分片所在节点离线 → 标记 degraded，尝试迁移到其他在线节点；
 //   - 迁移成功 → 分片置为 migrating 并最终 active（MVP 直接置 active）。

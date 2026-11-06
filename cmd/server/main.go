@@ -137,6 +137,13 @@ func backgroundLoop(ctx context.Context, reg *node.Registry, sch *scheduler.Sche
 		if fixed > 0 {
 			logger.Printf("shards rebalanced: %d", fixed)
 		}
+		orders, shards, err := sch.ReleaseExpired(time.Now())
+		if err != nil {
+			logger.Printf("order expiry error: %v", err)
+		}
+		if orders > 0 {
+			logger.Printf("orders expired: %d (shards released: %d)", orders, shards)
+		}
 	}
 
 	runOnce()

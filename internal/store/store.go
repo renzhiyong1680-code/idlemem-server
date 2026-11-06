@@ -277,6 +277,18 @@ func (s *Store) GetShard(id string) (*model.Shard, error) {
 	return out, err
 }
 
+// DeleteShard 删除分片（订单到期/释放容量时使用）。
+func (s *Store) DeleteShard(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.db.Update(func(tx *buntdb.Tx) error {
+		if _, err := tx.Delete(nsShard + id); err != nil && err != buntdb.ErrNotFound {
+			return err
+		}
+		return nil
+	})
+}
+
 // ListShards 返回全部分片。
 func (s *Store) ListShards() ([]*model.Shard, error) {
 	s.mu.Lock()

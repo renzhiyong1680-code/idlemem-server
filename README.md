@@ -98,10 +98,19 @@ curl -X POST http://127.0.0.1:8080/api/v1/tenants \
 ```bash
 curl -X POST http://127.0.0.1:8080/api/v1/orders \
   -H 'Content-Type: application/json' \
-  -d '{"tenant_id": "<上一步返回的id>", "capacity_bytes": 2147483648, "replicas": 1}'
+  -d '{"tenant_id": "<上一步返回的id>", "capacity_bytes": 2147483648, "replicas": 1, "expire_hours": 720}'
 ```
 
 > 下单前校验：租户必须存在且未停服；已购容量 + 本次容量不得超过 `quota_bytes`，超额返回 `409 quota exceeded`。
+
+`expire_hours` 为订单租期（小时），省略或 0 表示长期订单。到期后后台扫描会自动回收：
+
+- 订单置为 `expired`，其全部分片从控制面删除，客户不再能通过该订单容量写入；
+- 节点已用容量同步退回，容量重新可被新订单分配；
+- 释放幂等，重复扫描不会重复回收；
+- 节点上的实际数据随 Agent 侧 TTL/淘汰策略自然清理（缓存语义，不做数据迁移）。
+
+回收日志：`[server] orders expired: 1 (shards released: 1)`。
 
 ### 第四步：用标准 Redis 客户端访问缓存
 
