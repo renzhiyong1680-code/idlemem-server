@@ -111,6 +111,16 @@ func (g *Gateway) handle(conn redcon.Conn, cmd redcon.Command) {
 		g.handleMSet(conn, args)
 	case "INCR":
 		g.handleIncr(conn, args)
+	case "SETEX":
+		g.handleSetEx(conn, args)
+	case "GETSET":
+		g.handleGetSet(conn, args)
+	case "APPEND":
+		g.handleAppend(conn, args)
+	case "STRLEN":
+		g.handleStrLen(conn, args)
+	case "TYPE":
+		g.handleType(conn, args)
 	case "EXPIRE":
 		g.handleExpire(conn, args)
 	case "TTL":

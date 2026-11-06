@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -76,5 +77,93 @@ func TestGateway_MGetMSetIncrExists(t *testing.T) {
 	}
 	if got, _ := c.cmd("EXISTS", "big1", "big2"); got != ":0" {
 		t.Fatalf("failed mset must not write anything: %q", got)
+	}
+}
+
+// TestGateway_SetExGetSetAppendStrlenType 覆盖会话缓存类客户端最常用的几条命令。
+func TestGateway_SetExGetSetAppendStrlenType(t *testing.T) {
+	g := newTestGateway(t)
+	addr := startGateway(t, g)
+
+	c := newRESPClient(t, addr)
+	if got, err := c.cmd("AUTH", "tok-1"); err != nil || got != "+OK" {
+		t.Fatalf("auth: %q, %v", got, err)
+	}
+
+	// SETEX 写入并带过期：TTL 应为 1..10 之间的正整数。
+	if got, err := c.cmd("SETEX", "sess", "10", "v1"); err != nil || got != "+OK" {
+		t.Fatalf("setex: %q, %v", got, err)
+	}
+	ttlReply, _ := c.cmd("TTL", "sess")
+	n, err := strconv.Atoi(strings.TrimPrefix(ttlReply, ":"))
+	if err != nil || n < 1 || n > 10 {
+		t.Fatalf("setex should set a ~10s ttl, got %q", ttlReply)
+	}
+
+	// 过期秒数非法必须拒绝。
+	if got, _ := c.cmd("SETEX", "bad", "0", "x"); !strings.HasPrefix(got, "-ERR invalid expire time") {
+		t.Fatalf("setex with zero seconds should fail: %q", got)
+	}
+
+	// GETSET 返回旧值，并清除原有过期时间。
+	if got, _ := c.cmd("GETSET", "sess", "v2"); got != "$2\r\nv1" {
+		t.Fatalf("getset old value: %q", got)
+	}
+	if got, _ := c.cmd("TTL", "sess"); got != ":-1" {
+		t.Fatalf("getset should clear ttl: %q", got)
+	}
+	// 键不存在时 GETSET 返回 null，但仍然成功写入。
+	if got, _ := c.cmd("GETSET", "fresh", "new"); got != "$-1" {
+		t.Fatalf("getset on missing key: %q", got)
+	}
+	if got, _ := c.cmd("GET", "fresh"); !strings.Contains(got, "new") {
+		t.Fatalf("getset should still write: %q", got)
+	}
+
+	// APPEND 返回追加后的总长度。
+	if got, _ := c.cmd("APPEND", "sess", "!"); got != ":3" {
+		t.Fatalf("append length: %q", got)
+	}
+	if got, _ := c.cmd("GET", "sess"); !strings.Contains(got, "v2!") {
+		t.Fatalf("append payload: %q", got)
+	}
+	// 追加不应丢失已有过期时间。
+	if got, _ := c.cmd("SETEX", "sess2", "30", "a"); got != "+OK" {
+		t.Fatalf("setex sess2: %q", got)
+	}
+	c.cmd("APPEND", "sess2", "b")
+	if got, _ := c.cmd("TTL", "sess2"); got == ":-1" || got == ":-2" {
+		t.Fatalf("append should keep ttl: %q", got)
+	}
+
+	// STRLEN / TYPE。
+	if got, _ := c.cmd("STRLEN", "sess"); got != ":3" {
+		t.Fatalf("strlen: %q", got)
+	}
+	if got, _ := c.cmd("STRLEN", "missing"); got != ":0" {
+		t.Fatalf("strlen missing: %q", got)
+	}
+	if got, _ := c.cmd("TYPE", "sess"); got != "+string" {
+		t.Fatalf("type: %q", got)
+	}
+	if got, _ := c.cmd("TYPE", "missing"); got != "+none" {
+		t.Fatalf("type missing: %q", got)
+	}
+
+	// 追加同样受容量闸门约束，超额时报错且原值不变。
+	ten, err := g.store.GetTenant("tenant-1")
+	if err != nil {
+		t.Fatalf("get tenant: %v", err)
+	}
+	ten.QuotaBytes = 10
+	if err := g.store.UpsertTenant(ten); err != nil {
+			t.Fatalf("update tenant: %v", err)
+	}
+	g.resetCachesForTest(ten.ID)
+	if got, _ := c.cmd("APPEND", "sess", strings.Repeat("z", 30)); !strings.HasPrefix(got, "-ERR") {
+		t.Fatalf("append beyond capacity should fail: %q", got)
+	}
+	if got, _ := c.cmd("STRLEN", "sess"); got != ":3" {
+		t.Fatalf("failed append must keep old value: %q", got)
 	}
 }

@@ -5,6 +5,7 @@ package gateway
 
 import (
 	"strconv"
+	"time"
 
 	"github.com/tidwall/buntdb"
 	"github.com/tidwall/redcon"
@@ -138,8 +139,7 @@ func (g *Gateway) handleMSet(conn redcon.Conn, args []string) {
 	conn.WriteString("OK")
 }
 
-func (g *Gateway) handleIncr(conn redcon.Conn, args []string) {
-	t := g.requireTenant(conn)
+func (g *Gateway) handleIncr(conn redcon.Conn, args []string) {	t := g.requireTenant(conn)
 	if t == nil {
 		return
 	}
@@ -184,4 +184,185 @@ func (g *Gateway) handleIncr(conn redcon.Conn, args []string) {
 		}
 	}
 	conn.WriteInt64(next)
+}
+
+// handleSetEx 对应 SETEX key seconds value，等价于 SET key value EX seconds。
+// 会话、验证码这类"写入即带过期"的客户端路径基本都走这条命令。
+func (g *Gateway) handleSetEx(conn redcon.Conn, args []string) {
+	t := g.requireTenant(conn)
+	if t == nil {
+		return
+	}
+	if len(args) < 4 {
+		conn.WriteError("ERR wrong number of arguments for 'setex' command")
+		return
+	}
+	sec, err := strconv.ParseInt(args[2], 10, 64)
+	if err != nil || sec <= 0 {
+		conn.WriteError("ERR invalid expire time in 'setex' command")
+		return
+	}
+	key, value := args[1], args[3]
+	nsKey := namespaceKey(t, key)
+	ttl := time.Duration(sec) * time.Second
+
+	delta, err := g.checkSet(t, g.localLen(nsKey), len(value))
+	if err != nil {
+		conn.WriteError("ERR " + err.Error())
+		return
+	}
+	err = g.cache.Update(func(tx *buntdb.Tx) error {
+		_, _, err := tx.Set(nsKey, value, &buntdb.SetOptions{Expires: true, TTL: ttl})
+		return err
+	})
+	if err != nil {
+		conn.WriteError("ERR " + err.Error())
+		return
+	}
+	g.commit(t.ID, delta)
+
+	nodes, ferr := g.onlineShardNodes(t.ID)
+	if ferr == nil && len(nodes) > 0 {
+		if _, err := g.forwardSet(nodes, nsKey, value, sec); err != nil {
+			g.logger.Printf("gateway: forward setex %q: %v (local cache kept)", nsKey, err)
+		}
+	}
+	conn.WriteString("OK")
+}
+
+// handleGetSet 对应 GETSET key value：返回旧值并覆盖写入，旧值不存在返回 null。
+// 与 Redis 一致，覆盖后原有的过期时间被清除。
+func (g *Gateway) handleGetSet(conn redcon.Conn, args []string) {
+	t := g.requireTenant(conn)
+	if t == nil {
+		return
+	}
+	if len(args) < 3 {
+		conn.WriteError("ERR wrong number of arguments for 'getset' command")
+		return
+	}
+	key, value := args[1], args[2]
+	old, existed := g.lookup(t, key)
+	nsKey := namespaceKey(t, key)
+
+	delta, err := g.checkSet(t, len(old), len(value))
+	if err != nil {
+		conn.WriteError("ERR " + err.Error())
+		return
+	}
+	err = g.cache.Update(func(tx *buntdb.Tx) error {
+		_, _, err := tx.Set(nsKey, value, nil)
+		return err
+	})
+	if err != nil {
+		conn.WriteError("ERR " + err.Error())
+		return
+	}
+	g.commit(t.ID, delta)
+
+	nodes, ferr := g.onlineShardNodes(t.ID)
+	if ferr == nil && len(nodes) > 0 {
+		if _, err := g.forwardSet(nodes, nsKey, value, 0); err != nil {
+			g.logger.Printf("gateway: forward getset %q: %v (local cache kept)", nsKey, err)
+		}
+	}
+	if existed {
+		conn.WriteBulkString(old)
+	} else {
+		conn.WriteNull()
+	}
+}
+
+// handleAppend 对应 APPEND key value：追加到已有值末尾，返回追加后的总长度。
+// 键不存在时等价于新建；已有过期时间保持不变。
+func (g *Gateway) handleAppend(conn redcon.Conn, args []string) {
+	t := g.requireTenant(conn)
+	if t == nil {
+		return
+	}
+	if len(args) < 3 {
+		conn.WriteError("ERR wrong number of arguments for 'append' command")
+		return
+	}
+	key, suffix := args[1], args[2]
+	old, existed := g.lookup(t, key)
+	if !existed {
+		old = ""
+	}
+	newVal := old + suffix
+	nsKey := namespaceKey(t, key)
+
+	delta, err := g.checkSet(t, len(old), len(newVal))
+	if err != nil {
+		conn.WriteError("ERR " + err.Error())
+		return
+	}
+	// 保留剩余过期时间：键的过期语义不应因为一次追加而丢失。
+	var remain time.Duration
+	hasTTL := false
+	_ = g.cache.View(func(tx *buntdb.Tx) error {
+		if ttl, err := tx.TTL(nsKey); err == nil && ttl > 0 {
+			remain, hasTTL = ttl, true
+		}
+		return nil
+	})
+	err = g.cache.Update(func(tx *buntdb.Tx) error {
+		var opts *buntdb.SetOptions
+		if hasTTL {
+			opts = &buntdb.SetOptions{Expires: true, TTL: remain}
+		}
+		_, _, err := tx.Set(nsKey, newVal, opts)
+		return err
+	})
+	if err != nil {
+		conn.WriteError("ERR " + err.Error())
+		return
+	}
+	g.commit(t.ID, delta)
+
+	nodes, ferr := g.onlineShardNodes(t.ID)
+	if ferr == nil && len(nodes) > 0 {
+		ttlSec := int64(0)
+		if hasTTL {
+			ttlSec = int64(remain.Seconds())
+		}
+		if _, err := g.forwardSet(nodes, nsKey, newVal, ttlSec); err != nil {
+			g.logger.Printf("gateway: forward append %q: %v (local cache kept)", nsKey, err)
+		}
+	}
+	conn.WriteInt(len(newVal))
+}
+
+// handleStrLen 对应 STRLEN key：返回值的字节长度，不存在为 0。
+func (g *Gateway) handleStrLen(conn redcon.Conn, args []string) {
+	t := g.requireTenant(conn)
+	if t == nil {
+		return
+	}
+	if len(args) < 2 {
+		conn.WriteError("ERR wrong number of arguments for 'strlen' command")
+		return
+	}
+	if v, ok := g.lookup(t, args[1]); ok {
+		conn.WriteInt(len(v))
+		return
+	}
+	conn.WriteInt(0)
+}
+
+// handleType 对应 TYPE key：本平台只存字符串，存在返回 string，不存在返回 none。
+func (g *Gateway) handleType(conn redcon.Conn, args []string) {
+	t := g.requireTenant(conn)
+	if t == nil {
+		return
+	}
+	if len(args) < 2 {
+		conn.WriteError("ERR wrong number of arguments for 'type' command")
+		return
+	}
+	if _, ok := g.lookup(t, args[1]); ok {
+		conn.WriteString("string")
+		return
+	}
+	conn.WriteString("none")
 }
