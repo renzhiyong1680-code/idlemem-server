@@ -31,6 +31,7 @@ type Gateway struct {
 	srv    *redcon.Server
 	logger *log.Logger
 	quota  *quotaState // 租户已写字节 / 已购容量
+	snaps  *tenantSnaps
 }
 
 // New 创建网关。cachePath 为空时使用纯内存缓存。
@@ -48,6 +49,7 @@ func New(addr string, s *store.Store, cachePath string, logger *log.Logger) (*Ga
 		cache:  db,
 		logger: logger,
 		quota:  newQuotaState(),
+		snaps:  newTenantSnaps(),
 	}
 	g.srv = redcon.NewServer(addr, g.handle, g.accept, g.closed)
 	return g, nil
@@ -101,6 +103,14 @@ func (g *Gateway) handle(conn redcon.Conn, cmd redcon.Command) {
 		g.handleGet(conn, args)
 	case "DEL":
 		g.handleDel(conn, args)
+	case "EXISTS":
+		g.handleExists(conn, args)
+	case "MGET":
+		g.handleMGet(conn, args)
+	case "MSET":
+		g.handleMSet(conn, args)
+	case "INCR":
+		g.handleIncr(conn, args)
 	case "EXPIRE":
 		g.handleExpire(conn, args)
 	case "TTL":
@@ -154,9 +164,8 @@ func namespaceKey(t *model.Tenant, key string) string {
 }
 
 func (g *Gateway) handleSet(conn redcon.Conn, args []string) {
-	t := tenant(conn)
+	t := g.requireTenant(conn)
 	if t == nil {
-		conn.WriteError("NOAUTH Authentication required")
 		return
 	}
 	if len(args) < 3 {
@@ -217,9 +226,8 @@ func (g *Gateway) handleSet(conn redcon.Conn, args []string) {
 }
 
 func (g *Gateway) handleGet(conn redcon.Conn, args []string) {
-	t := tenant(conn)
+	t := g.requireTenant(conn)
 	if t == nil {
-		conn.WriteError("NOAUTH Authentication required")
 		return
 	}
 	if len(args) < 2 {
@@ -254,9 +262,8 @@ func (g *Gateway) handleGet(conn redcon.Conn, args []string) {
 }
 
 func (g *Gateway) handleDel(conn redcon.Conn, args []string) {
-	t := tenant(conn)
+	t := g.requireTenant(conn)
 	if t == nil {
-		conn.WriteError("NOAUTH Authentication required")
 		return
 	}
 	if len(args) < 2 {
@@ -290,9 +297,8 @@ func (g *Gateway) handleDel(conn redcon.Conn, args []string) {
 }
 
 func (g *Gateway) handleExpire(conn redcon.Conn, args []string) {
-	t := tenant(conn)
+	t := g.requireTenant(conn)
 	if t == nil {
-		conn.WriteError("NOAUTH Authentication required")
 		return
 	}
 	if len(args) < 3 {
@@ -334,9 +340,8 @@ func (g *Gateway) handleExpire(conn redcon.Conn, args []string) {
 }
 
 func (g *Gateway) handleTTL(conn redcon.Conn, args []string) {
-	t := tenant(conn)
+	t := g.requireTenant(conn)
 	if t == nil {
-		conn.WriteError("NOAUTH Authentication required")
 		return
 	}
 	if len(args) < 2 {

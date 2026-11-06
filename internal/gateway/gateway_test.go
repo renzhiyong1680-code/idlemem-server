@@ -42,7 +42,13 @@ func (c *respClient) cmd(args ...string) (string, error) {
 	if _, err := c.conn.Write([]byte(b.String())); err != nil {
 		return "", err
 	}
-	// 读首行：+OK / -ERR / :N / $len
+	return c.readReply()
+}
+
+// readReply 解析一条 RESP 回复，支持 simple string / error / integer /
+// bulk string / null / 数组（数组元素以 \r\n 连接）。
+func (c *respClient) readReply() (string, error) {
+	// 读首行：+OK / -ERR / :N / $len / *n
 	line, err := c.br.ReadString('\n')
 	if err != nil {
 		return "", err
@@ -54,6 +60,23 @@ func (c *respClient) cmd(args ...string) (string, error) {
 	switch line[0] {
 	case '+', '-', ':':
 		return line, nil
+	case '*':
+		n, err := strconv.Atoi(line[1:])
+		if err != nil {
+			return line, err
+		}
+		if n < 0 {
+			return "*-1", nil
+		}
+		items := make([]string, 0, n)
+		for i := 0; i < n; i++ {
+			it, err := c.readReply()
+			if err != nil {
+				return line, err
+			}
+			items = append(items, it)
+		}
+		return "*" + strconv.Itoa(n) + "\r\n" + strings.Join(items, "\r\n"), nil
 	case '$':
 		n, err := strconv.Atoi(line[1:])
 		if err != nil {
@@ -73,6 +96,16 @@ func (c *respClient) cmd(args ...string) (string, error) {
 }
 
 // startGateway 启动网关并返回连接地址。
+// resetCachesForTest 清掉容量与租户快照缓存，让测试里改的配额立即生效。
+func (g *Gateway) resetCachesForTest(id string) {
+	g.quota.mu.Lock()
+	delete(g.quota.capAt, id)
+	g.quota.mu.Unlock()
+	g.snaps.mu.Lock()
+	delete(g.snaps.byID, id)
+	g.snaps.mu.Unlock()
+}
+
 func startGateway(t *testing.T, g *Gateway) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

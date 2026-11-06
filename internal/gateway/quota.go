@@ -128,6 +128,34 @@ func (g *Gateway) checkSet(t *model.Tenant, oldLen, newLen int) (int64, error) {
 	return int64(newLen) - int64(oldLen), nil
 }
 
+// checkBatch 批量校验一组写入的净增量，返回合计增量（写入成功后提交）。
+func (g *Gateway) checkBatch(t *model.Tenant, deltas []int64) (int64, error) {
+	var sum int64
+	for _, d := range deltas {
+		sum += d
+	}
+	limit, err := g.capacity(t)
+	if err != nil {
+		return 0, err
+	}
+	if limit <= 0 {
+		return sum, nil
+	}
+	q := g.quota
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if !q.loaded[t.ID] {
+		q.used[t.ID] = g.scanTenantLocked(t)
+		q.loaded[t.ID] = true
+	}
+	used := q.used[t.ID]
+	after := used + sum
+	if after > limit {
+		return 0, fmt.Errorf("capacity exceeded: used=%d requested=%d limit=%d", used, sum, limit)
+	}
+	return sum, nil
+}
+
 // commit 累加已写字节（SET 成功或 DEL 完成后调用）。
 func (g *Gateway) commit(tenantID string, delta int64) {
 	if delta == 0 {

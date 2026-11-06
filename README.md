@@ -36,8 +36,9 @@
 
 网关在本地缓存之外，还会把数据**转发到承载分片的 Agent 节点**：
 
-- **SET / DEL / EXPIRE**：写入本地缓存，同时转发到该租户所有在线分片节点（多副本）；
-- **GET / TTL**：本地命中直接返回；本地 miss 时**回源到任一在线分片节点**；
+- **SET / MSET / INCR / DEL / EXPIRE**：写入本地缓存，同时转发到该租户所有在线分片节点（多副本）；
+- **GET / MGET / EXISTS / TTL**：本地命中直接返回；本地 miss 时**回源到任一在线分片节点**；
+- **MSET / INCR** 与 SET 共用同一套容量闸门：批量写按"net 增量合计"一次性判定，超额整批拒绝；
 - 节点地址来自 Agent 心跳上报的 `kv_addr`（节点 `KVAddr` 字段）；
 - 节点全部不可达时，命令仍基于本地缓存正常服务（Best-Effort），转发失败记日志。
 
@@ -129,7 +130,10 @@ OK
 > QUIT
 ```
 
-支持命令：`AUTH` `PING` `SET [EX]` `GET` `DEL` `EXPIRE` `TTL` `INFO` `QUIT`。
+支持命令：`AUTH` `PING` `SET [EX]` `GET` `DEL` `EXISTS` `MGET` `MSET` `INCR` `EXPIRE` `TTL` `INFO` `QUIT`。
+
+租户状态（`active` / `suspended`）与配额按 10 秒快照刷新，因此**停服、改配额对已经登录的长连接同样生效**，
+客户无法通过保持长连接绕过停服；`10s` 是生效上限，不是固定延迟。
 
 ### 停服与恢复（欠费控制）
 

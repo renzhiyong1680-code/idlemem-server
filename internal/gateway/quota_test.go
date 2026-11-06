@@ -19,10 +19,8 @@ func TestGateway_CapacityLimit(t *testing.T) {
 	if err := g.store.UpsertTenant(ten); err != nil {
 		t.Fatalf("update tenant: %v", err)
 	}
-	// 清掉容量缓存，让新的配额立即生效。
-	g.quota.mu.Lock()
-	delete(g.quota.capAt, ten.ID)
-	g.quota.mu.Unlock()
+	// 清掉容量与快照缓存，让新的配额立即生效。
+	g.resetCachesForTest(ten.ID)
 
 	c := newRESPClient(t, addr)
 	if got, err := c.cmd("AUTH", "tok-1"); err != nil || got != "+OK" {
@@ -59,6 +57,47 @@ func TestGateway_CapacityLimit(t *testing.T) {
 	}
 	if got, _ := c.cmd("SET", "k3", "x"); got != "+OK" {
 		t.Fatalf("set after delete should pass: %q", got)
+	}
+}
+
+// TestGateway_SuspendAffectsExistingConnection 停服必须对已经 AUTH 过的连接生效，
+// 否则客户可以靠长连接绕过停服。
+func TestGateway_SuspendAffectsExistingConnection(t *testing.T) {
+	g := newTestGateway(t)
+	addr := startGateway(t, g)
+
+	c := newRESPClient(t, addr)
+	if got, err := c.cmd("AUTH", "tok-1"); err != nil || got != "+OK" {
+		t.Fatalf("auth: %q, %v", got, err)
+	}
+	if got, _ := c.cmd("SET", "k", "v"); got != "+OK" {
+		t.Fatalf("set before suspend: %q", got)
+	}
+
+	ten, err := g.store.GetTenant("tenant-1")
+	if err != nil {
+		t.Fatalf("get tenant: %v", err)
+	}
+	ten.Status = "suspended"
+	if err := g.store.UpsertTenant(ten); err != nil {
+		t.Fatalf("suspend: %v", err)
+	}
+	g.resetCachesForTest(ten.ID)
+
+	if got, _ := c.cmd("SET", "k", "v2"); !strings.Contains(got, "tenant suspended") {
+		t.Fatalf("set after suspend should be rejected: %q", got)
+	}
+	if got, _ := c.cmd("GET", "k"); !strings.Contains(got, "tenant suspended") {
+		t.Fatalf("get after suspend should be rejected: %q", got)
+	}
+
+	ten.Status = "active"
+	if err := g.store.UpsertTenant(ten); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	g.resetCachesForTest(ten.ID)
+	if got, _ := c.cmd("GET", "k"); got != "$1\r\nv" {
+		t.Fatalf("get after resume: %q", got)
 	}
 }
 
