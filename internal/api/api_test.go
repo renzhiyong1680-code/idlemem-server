@@ -36,6 +36,81 @@ func newTestServer(t *testing.T) *httptest.Server {
 	return ts
 }
 
+func TestAuthTokens(t *testing.T) {
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	reg := node.New(st, 30*time.Second, time.Hour)
+	sch := scheduler.New(st, reg, 1)
+	srv := New(st, reg, sch, nil, billing.Price{}, log.New(io.Discard, "", 0))
+	srv.SetTokens("admin-secret", "node-secret")
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 无令牌：管理接口 401，探活仍 200。
+	resp, err := http.Get(ts.URL + "/api/v1/tenants")
+	if err != nil {
+		t.Fatalf("get tenants: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("no token status = %d, want 401", resp.StatusCode)
+	}
+	resp, err = http.Get(ts.URL + "/healthz")
+	if err != nil {
+		t.Fatalf("healthz: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("healthz status = %d, want 200", resp.StatusCode)
+	}
+
+	// 管理令牌可访问管理接口。
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/tenants", nil)
+	req.Header.Set("Authorization", "Bearer admin-secret")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("admin get: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("admin token status = %d, want 200", resp.StatusCode)
+	}
+
+	// 节点心跳只认 node_token（或 admin_token）。
+	hbBody, _ := json.Marshal(heartbeat.Snapshot{
+		NodeID:        "n-auth",
+		Version:       "0.1.0",
+		Status:        heartbeat.StatusOnline,
+		CapacityBytes: 1 << 30,
+	})
+	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/api/v1/nodes/heartbeat", bytes.NewReader(hbBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("node heartbeat: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("node without token = %d, want 401", resp.StatusCode)
+	}
+
+	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/api/v1/nodes/heartbeat", bytes.NewReader(hbBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Node-Token", "node-secret")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("node heartbeat with token: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("node token status = %d, want 200", resp.StatusCode)
+	}
+}
+
 func postJSON(t *testing.T, url string, body any) (*http.Response, map[string]any) {
 	t.Helper()
 	b, err := json.Marshal(body)

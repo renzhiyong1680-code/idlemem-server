@@ -29,5 +29,11 @@
   "_comment10": "客户计费单价（元/GB·h），按租户活跃分片计量；<=0 使用默认 0.0004",
 
   "supplier_price_per_gb_hour": 0.00032,
-  "_comment11": "节点供给结算单价（元/GB·h），按节点承载分片计量；<=0 使用默认 0.00032，佣金为两价差（默认约 20%）"
+  "_comment11": "节点供给结算单价（元/GB·h），按节点承载分片计量；<=0 使用默认 0.00032，佣金为两价差（默认约 20%）",
+
+  "admin_token": "",
+  "_comment12": "管理面令牌：REST 管理接口与 /metrics 校验 Authorization: Bearer 或 X-Admin-Token。生产必须设置，否则任何人都能建租户/改价/停服；用 xiancun-server -gen-token 生成",
+
+  "node_token": "",
+  "_comment13": "节点面令牌：Agent 调用 /nodes/register、/nodes/heartbeat 时以 X-Node-Token 发送。生产必须设置，否则可任意注册伪节点"
 }

@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -30,7 +31,21 @@ import (
 
 func main() {
 	cfgPath := flag.String("config", "", "config json file path (optional)")
+	genToken := flag.Bool("gen-token", false, "generate a random admin_token/node_token pair and exit")
 	flag.Parse()
+
+	if *genToken {
+		admin, err := api.GenerateToken()
+		if err != nil {
+			log.Fatalf("generate token: %v", err)
+		}
+		node, err := api.GenerateToken()
+		if err != nil {
+			log.Fatalf("generate token: %v", err)
+		}
+		fmt.Printf("admin_token: %s\nnode_token: %s\n", admin, node)
+		return
+	}
 
 	logger := log.New(os.Stdout, "[server] ", log.LstdFlags|log.Lmsgprefix)
 
@@ -59,6 +74,13 @@ func main() {
 		SupplierPerGBHour: cfg.SupplierPricePerGBHour,
 	}.Normalize()
 	apiSrv := api.New(st, reg, sch, mtr, price, logger)
+	apiSrv.SetTokens(cfg.AdminToken, cfg.NodeToken)
+	if cfg.AdminToken == "" {
+		logger.Printf("WARNING: admin_token is empty, the management API is unauthenticated (dev only)")
+	}
+	if cfg.NodeToken == "" {
+		logger.Printf("WARNING: node_token is empty, node registration/heartbeat is unauthenticated")
+	}
 	httpSrv := &http.Server{
 		Addr:    cfg.APIAddr,
 		Handler: apiSrv.Handler(),

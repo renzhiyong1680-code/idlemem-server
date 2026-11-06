@@ -180,6 +180,8 @@ curl -X POST http://127.0.0.1:8080/api/v1/tenants/<id>/resume
 | `meter_interval` | `60s` | GB·h 计量采样周期（0=关闭计量） |
 | `customer_price_per_gb_hour` | `0.0004` | 客户计费单价（元/GB·h），<=0 用默认 |
 | `supplier_price_per_gb_hour` | `0.00032` | 节点供给结算单价（元/GB·h），<=0 用默认 |
+| `admin_token` | 空 | 管理面令牌（管理接口 + `/metrics`）；空=不校验，**生产必须设置** |
+| `node_token` | 空 | 节点上报令牌（Agent 注册/心跳）；空=不校验，**生产必须设置** |
 
 配置文件示例 `config.json`：
 
@@ -199,6 +201,33 @@ curl -X POST http://127.0.0.1:8080/api/v1/tenants/<id>/resume
 ```
 
 > 时长字段使用 Go `time.Duration` 的纳秒整数（如 `30s` = `30000000000`）。
+
+## 控制面鉴权
+
+默认不校验令牌，只适合本地开发。生产环境用内置命令生成一对随机令牌并写入配置：
+
+```bash
+./idlemem-server -gen-token
+# admin_token: 8f3c...（64 位十六进制）
+# node_token:  b71e...
+```
+
+| 令牌 | 保护范围 | 传递方式 |
+|---|---|---|
+| `admin_token` | 租户、订单、账单、概览、`/metrics` | `Authorization: Bearer <token>` 或 `X-Admin-Token` |
+| `node_token` | `/api/v1/nodes/register`、`/api/v1/nodes/heartbeat` | `X-Node-Token`（Agent 用 `-node-token` 或配置 `node_token`） |
+
+```bash
+curl -H "X-Admin-Token: $ADMIN_TOKEN" http://127.0.0.1:8080/api/v1/tenants
+```
+
+- `/healthz` 始终开放，供负载均衡探活；
+- 节点接口也接受 `admin_token`，便于运维手工补注册；
+- 令牌用常量时间比较，避免时序侧信道；
+- 未配置令牌时启动日志会打印 `WARNING`，避免生产误开到无鉴权；
+- Prometheus 抓 `/metrics` 需带令牌（`authorization: {credentials: <admin_token>}`）。
+
+> 客户侧（网关 `:6379`）的鉴权是另一套：`AUTH <租户 token>`，与上面两个令牌无关。
 
 ## 调度与自愈机制
 
@@ -390,6 +419,8 @@ curl http://127.0.0.1:8080/api/v1/nodes/{node_id}/earnings
 scrape_configs:
   - job_name: xiancun-control-plane
     metrics_path: /metrics
+    authorization:
+      credentials: <admin_token>   # 未设置 admin_token 时可省略
     static_configs:
       - targets: ["127.0.0.1:8080"]
 ```

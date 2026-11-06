@@ -31,6 +31,13 @@ type Config struct {
 	CustomerPricePerGBHour float64 `json:"customer_price_per_gb_hour"`
 	// SupplierPricePerGBHour 节点供给结算单价（元/GB·h），<=0 用默认值。
 	SupplierPricePerGBHour float64 `json:"supplier_price_per_gb_hour"`
+
+	// AdminToken 管理面访问令牌（REST 管理接口与 /metrics）。
+	// 为空表示不校验，仅建议本地开发使用；生产必须设置。
+	AdminToken string `json:"admin_token"`
+	// NodeToken 节点注册/心跳令牌（Agent 上报）。
+	// 为空表示不校验。
+	NodeToken string `json:"node_token"`
 }
 
 // Default 返回适用于本地开发/小规模内测的默认配置。

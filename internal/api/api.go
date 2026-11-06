@@ -34,6 +34,10 @@ type Server struct {
 	settler   *settle.Settler
 	mux       *http.ServeMux
 	logger    *log.Logger
+
+	// adminToken 管理面访问令牌；nodeToken 节点注册/心跳令牌。空表示不校验。
+	adminToken string
+	nodeToken  string
 }
 
 // New 创建 API 服务。price 为全零值时使用默认单价。
@@ -97,8 +101,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /metrics", s.handleMetrics)
 }
 
-// Handler 返回可挂载的 http.Handler。
-func (s *Server) Handler() http.Handler { return s.mux }
+// Handler 返回可挂载的 http.Handler。设置了令牌时自动启用鉴权中间件。
+func (s *Server) Handler() http.Handler {
+	if s.adminToken == "" && s.nodeToken == "" {
+		return s.mux
+	}
+	return s.authMiddleware(s.mux)
+}
 
 // ---------- 节点 ----------
 
