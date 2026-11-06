@@ -86,6 +86,8 @@ func (s *Server) routes() {
 
 	// 客户自助：单租户计费状态（累计/已出账/待结算）
 	s.mux.HandleFunc("GET /api/v1/tenants/{id}/billing", s.handleTenantBilling)
+	// 供给端自助：单节点承载用量与收益
+	s.mux.HandleFunc("GET /api/v1/nodes/{id}/earnings", s.handleNodeEarnings)
 
 	// 健康检查与概览
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -610,6 +612,36 @@ func (s *Server) handleTenantBilling(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"tenant":  map[string]any{"id": t.ID, "name": t.Name, "quota_bytes": t.QuotaBytes, "created_at": t.CreatedAt},
 		"billing": sum,
+	})
+}
+
+// handleNodeEarnings 供给端自助：返回某节点的承载用量与收益（已结算/待结算）。
+func (s *Server) handleNodeEarnings(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	n, err := s.store.GetNode(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if n == nil {
+		writeError(w, http.StatusNotFound, "node not found")
+		return
+	}
+	if s.meter == nil {
+		writeError(w, http.StatusServiceUnavailable, "metering not enabled")
+		return
+	}
+	sum, err := s.settler.NodeSummary(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"node": map[string]any{
+			"id": n.ID, "status": n.Status,
+			"capacity_bytes": n.CapacityBytes, "used_bytes": n.UsedBytes,
+		},
+		"earnings": sum,
 	})
 }
 

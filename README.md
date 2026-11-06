@@ -286,6 +286,7 @@ go run ./examples/client -addr 127.0.0.1:6379 -token <tenant-token>
 | GET | `/api/v1/billing/invoices/{id}` | 单张期账单明细 |
 | GET | `/api/v1/billing/export.csv` | 对账明细导出（客户+节点统一表，带 BOM，Excel 可直接打开） |
 | GET | `/api/v1/tenants/{id}/billing` | 客户自助：某租户累计/已出账/待结算 |
+| GET | `/api/v1/nodes/{id}/earnings` | 供给端自助：某节点承载用量与收益 |
 
 机制：
 
@@ -320,6 +321,32 @@ total,rows=2,0.004444,0.000000,0.0000016000
 ```
 
 生产建议：用 cron 每日/每月调用一次 `settle`（例如 `0 2 * * *`），把返回的账单 JSON 归档到对象存储或财务系统。
+
+## 供给端收益自助（节点）
+
+节点所有者最关心"我这台机器挣了多少"，接口同时给出两套口径，避免混淆：
+
+```bash
+curl http://127.0.0.1:8080/api/v1/nodes/{node_id}/earnings
+```
+
+```json
+{
+  "node": {"id": "a512c2fde7be0a23", "status": "online", "capacity_bytes": 10640019456, "used_bytes": 0},
+  "earnings": {
+    "total_gb_hours": 0.004444,        // 承载用量（node_used，结算依据）
+    "supply_gb_hours": 0.060557,       // 在线容量累计（能力参考，不结算）
+    "invoiced_gb_hours": 0.004444,     // 已出账
+    "pending_gb_hours": 0,
+    "pending_amount_cny": 0,
+    "invoiced_amount_cny": 0.0000014222,
+    "invoice_count": 1,
+    "price": {"customer_per_gb_hour": 0.0004, "supplier_per_gb_hour": 0.00032}
+  }
+}
+```
+
+要点：只有"已售出并实际承载"的容量（`node_used`）产生收益，在线但无人租用的容量不计费（`supply_gb_hours` 仅展示）。
 
 ## 运维可观测（/metrics）
 

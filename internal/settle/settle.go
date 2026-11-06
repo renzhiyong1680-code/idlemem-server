@@ -245,6 +245,60 @@ func (s *Settler) TenantSummary(tenantID string) (*TenantSummary, error) {
 	return out, nil
 }
 
+// NodeSummary 单个节点的自助收益视图：承载用量、已结算、待结算。
+type NodeSummary struct {
+	NodeID            string        `json:"node_id"`
+	Price             billing.Price `json:"price"`
+	TotalGBHours      float64       `json:"total_gb_hours"`      // 承载（node_used）累计
+	SupplyGBHours     float64       `json:"supply_gb_hours"`     // 在线容量累计（能力参考，不结算）
+	InvoicedGBHours   float64       `json:"invoiced_gb_hours"`   // 已出账
+	PendingGBHours    float64       `json:"pending_gb_hours"`    // 待出账
+	PendingAmountCNY  float64       `json:"pending_amount_cny"`  // 待结算收益
+	InvoicedAmountCNY float64       `json:"invoiced_amount_cny"` // 已结算收益
+	InvoiceCount      int           `json:"invoice_count"`
+}
+
+// NodeSummary 汇总某节点的供给收益状态，供节点所有者自助查询。
+func (s *Settler) NodeSummary(nodeID string) (*NodeSummary, error) {
+	out := &NodeSummary{NodeID: nodeID, Price: s.price}
+	rec, err := s.store.GetUsage(model.UsageScopeNodeUsed, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	if rec != nil {
+		out.TotalGBHours = rec.GBHours
+	}
+	sup, err := s.store.GetUsage(model.UsageScopeNode, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	if sup != nil {
+		out.SupplyGBHours = sup.GBHours
+	}
+
+	invs, err := s.List()
+	if err != nil {
+		return nil, err
+	}
+	for _, inv := range invs {
+		for _, n := range inv.Nodes {
+			if n.NodeID != nodeID {
+				continue
+			}
+			out.InvoicedGBHours += n.GBHours
+			out.InvoicedAmountCNY += n.PayoutCNY
+			out.InvoiceCount++
+		}
+	}
+
+	out.PendingGBHours = out.TotalGBHours - out.InvoicedGBHours
+	if out.PendingGBHours < 0 {
+		out.PendingGBHours = 0
+	}
+	out.PendingAmountCNY = out.PendingGBHours * s.price.SupplierPerGBHour
+	return out, nil
+}
+
 // ExportRow 对账 CSV 的一行（客户账单与节点结算共用同一张表）。
 type ExportRow struct {
 	Type         string  `json:"type"`

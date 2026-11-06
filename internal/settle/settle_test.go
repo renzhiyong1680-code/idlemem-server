@@ -169,6 +169,46 @@ func TestExportRows(t *testing.T) {
 	}
 }
 
+// TestNodeSummary 验证供给端自助视图：承载用量（结算依据）与在线供给（参考）分开。
+func TestNodeSummary(t *testing.T) {
+	s, st := newTestSettler(t)
+	putUsage(t, st, model.UsageScopeNodeUsed, "n1", 1000)
+	putUsage(t, st, model.UsageScopeNode, "n1", 5000)
+
+	if _, err := s.Settle(time.Now()); err != nil {
+		t.Fatalf("settle: %v", err)
+	}
+	// 出账后继续承载 200 GB·h。
+	putUsage(t, st, model.UsageScopeNodeUsed, "n1", 1200)
+
+	sum, err := s.NodeSummary("n1")
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if diff(sum.TotalGBHours, 1200) > 1e-9 {
+		t.Fatalf("total = %v, want 1200", sum.TotalGBHours)
+	}
+	if diff(sum.SupplyGBHours, 5000) > 1e-9 {
+		t.Fatalf("supply = %v, want 5000", sum.SupplyGBHours)
+	}
+	if diff(sum.InvoicedGBHours, 1000) > 1e-9 {
+		t.Fatalf("invoiced = %v, want 1000", sum.InvoicedGBHours)
+	}
+	if diff(sum.PendingGBHours, 200) > 1e-9 {
+		t.Fatalf("pending = %v, want 200", sum.PendingGBHours)
+	}
+	// 待结算收益按供给单价 0.00032 计：200 × 0.00032 = 0.064。
+	if diff(sum.PendingAmountCNY, 0.064) > 1e-9 {
+		t.Fatalf("pending amount = %v, want 0.064", sum.PendingAmountCNY)
+	}
+	if diff(sum.InvoicedAmountCNY, 0.32) > 1e-9 {
+		t.Fatalf("invoiced amount = %v, want 0.32", sum.InvoicedAmountCNY)
+	}
+	if sum.InvoiceCount != 1 {
+		t.Fatalf("invoice count = %d, want 1", sum.InvoiceCount)
+	}
+}
+
 func diff(a, b float64) float64 {
 	d := a - b
 	if d < 0 {
