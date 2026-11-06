@@ -29,10 +29,19 @@ import (
 	"github.com/xiancuncloud/idlemem-server/internal/store"
 )
 
+// version 由构建脚本通过 -ldflags "-X main.version=..." 注入。
+var version = "dev"
+
 func main() {
 	cfgPath := flag.String("config", "", "config json file path (optional)")
 	genToken := flag.Bool("gen-token", false, "generate a random admin_token/node_token pair and exit")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("idlemem-server %s\n", version)
+		return
+	}
 
 	if *genToken {
 		admin, err := api.GenerateToken()
@@ -122,7 +131,7 @@ func main() {
 		}
 	}()
 
-	logger.Printf("idlemem-server started (db=%s)", cfg.DBPath)
+	logger.Printf("idlemem-server started (version=%s db=%s)", version, cfg.DBPath)
 
 	<-ctx.Done()
 	logger.Printf("shutting down...")

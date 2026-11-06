@@ -493,6 +493,39 @@ OK
 
 拒绝发生在写入本地缓存之前，不会产生"写进去但没计费"的数据。
 
+## 构建与发版
+
+三个二进制（`idlemem-server`、`xiancun-cli`、`xiancun-agent`）都可以用一条脚本交叉编译出多平台产物：
+
+```powershell
+# Windows（当前工作目录为 idlemem-server）
+.\scripts\release.ps1                        # 版本取 git describe，缺省 0.1.0-dev
+.\scripts\release.ps1 -Version 0.2.0         # 指定版本
+.\scripts\release.ps1 -Version 0.2.0 -Only server,cli
+```
+
+产物落在 `dist\<version>\`，每个二进制带版本号命名（`server_0.2.0_linux_amd64`），
+并生成 `SHA256SUMS`，在目标机上可直接核对：
+
+```bash
+sha256sum -c SHA256SUMS
+```
+
+Linux/macOS 侧等价的手工命令（脚本同款 ldflags）：
+
+```bash
+VERSION=0.2.0
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+  go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o dist/server_${VERSION}_linux_amd64 ./cmd/server
+```
+
+说明：
+
+- 版本通过 `-ldflags "-X main.version=..."` 注入，每个二进制都支持 `-version`：
+  `idlemem-server 0.2.0` / `xiancun-cli 0.2.0` / `xiancun-agent 0.2.0`；
+- 服务器启动日志同样打印版本，便于对齐线上实际版本；
+- 托盘程序（`xiancun-tray`）依赖 CGO 与平台 GUI，需在目标平台上单独构建。
+
 ## 目录结构
 
 ```
@@ -513,6 +546,7 @@ idlemem-server/
 ├── client/                # 官方 Go SDK（企业应用接入）
 ├── examples/client/       # 零依赖 RESP 客户端示例
 ├── examples/sdk/          # 官方 SDK 接入示例
+├── scripts/release.ps1    # 多平台发版打包（版本注入 + SHA256SUMS）
 └── go.mod
 ```
 

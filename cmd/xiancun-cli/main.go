@@ -61,15 +61,24 @@ const usageText = `闲存云 CLI
 租期写法：Go 时长（720h、30d）或纯小时数。
 `
 
+// version 由构建脚本通过 -ldflags "-X main.version=..." 注入。
+var version = "dev"
+
 func main() {
 	var (
 		server = flag.String("server", "http://127.0.0.1:8080", "control plane base url")
 		token  = flag.String("admin-token", os.Getenv("XIANCUN_ADMIN_TOKEN"), "admin token")
 		tmo    = flag.Duration("timeout", 15*time.Second, "request timeout")
 		help   = flag.Bool("h", false, "show help")
+		ver    = flag.Bool("version", false, "print version and exit")
 	)
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usageText) }
 	flag.Parse()
+
+	if *ver {
+		fmt.Printf("xiancun-cli %s\n", version)
+		return
+	}
 
 	if *help || flag.NArg() == 0 {
 		fmt.Fprint(os.Stdout, usageText)
