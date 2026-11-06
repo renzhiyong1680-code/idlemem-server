@@ -53,6 +53,9 @@ const usageText = `闲存云 CLI
   billing invoices                          历史期账单
   billing export -o <文件.csv>              对账明细导出（Excel 可直接打开）
 
+  backup export [-o <文件.json>]            导出控制面元数据备份
+  backup restore -f <文件.json>             从备份恢复（Upsert，不删除现有记录）
+
   kv -addr <host:port> -token <租户token> set <key> <value> [-ttl 60]
   kv -addr <host:port> -token <租户token> get <key>
   kv -addr <host:port> -token <租户token> del <key>
@@ -102,6 +105,8 @@ func main() {
 		err = cmdNode(c, args[1:])
 	case "billing":
 		err = cmdBilling(c, args[1:])
+	case "backup":
+		err = cmdBackup(c, args[1:])
 	case "kv":
 		err = cmdKV(args[1:])
 	default:
@@ -124,11 +129,18 @@ type apiClient struct {
 func (c *apiClient) do(method, path string, body any) ([]byte, error) {
 	var rdr io.Reader
 	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			return nil, err
+		switch b := body.(type) {
+		case []byte:
+			rdr = bytes.NewReader(b)
+		case json.RawMessage:
+			rdr = bytes.NewReader(b)
+		default:
+			enc, err := json.Marshal(body)
+			if err != nil {
+				return nil, err
+			}
+			rdr = bytes.NewReader(enc)
 		}
-		rdr = bytes.NewReader(b)
 	}
 	req, err := http.NewRequest(method, c.base+path, rdr)
 	if err != nil {
@@ -364,6 +376,64 @@ func cmdBilling(c *apiClient, args []string) error {
 
 	default:
 		return fmt.Errorf("billing: unknown subcommand %q", args[0])
+	}
+}
+
+// ---------- backup ----------
+
+func cmdBackup(c *apiClient, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: backup export [-o <file.json>] | backup restore -f <file.json>")
+	}
+	switch args[0] {
+	case "export":
+		fs := flag.NewFlagSet("backup export", flag.ExitOnError)
+		out := fs.String("o", "", "output file (default xiancun-backup-<timestamp>.json)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		data, err := c.do("GET", "/api/v1/backup", nil)
+		if err != nil {
+			return err
+		}
+		// 缩进便于人工核对与 diff
+		var v any
+		if json.Unmarshal(data, &v) == nil {
+			if b, err := json.MarshalIndent(v, "", "  "); err == nil {
+				data = b
+			}
+		}
+		name := *out
+		if name == "" {
+			name = "xiancun-backup-" + time.Now().Format("20060102-150405") + ".json"
+		}
+		if err := os.WriteFile(name, append(data, '\n'), 0o644); err != nil {
+			return err
+		}
+		fmt.Printf("OK backup %s (%d bytes)\n", name, len(data))
+		return nil
+
+	case "restore":
+		fs := flag.NewFlagSet("backup restore", flag.ExitOnError)
+		file := fs.String("f", "", "backup file to restore (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *file == "" {
+			return fmt.Errorf("backup restore: -f <file.json> is required")
+		}
+		raw, err := os.ReadFile(*file)
+		if err != nil {
+			return err
+		}
+		data, err := c.do("POST", "/api/v1/backup/restore", json.RawMessage(raw))
+		if err != nil {
+			return err
+		}
+		return printJSON(data)
+
+	default:
+		return fmt.Errorf("backup: unknown subcommand %q", args[0])
 	}
 }
 

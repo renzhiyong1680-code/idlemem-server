@@ -95,6 +95,46 @@ func (sc *Scheduler) PlaceOrder(o *model.Order) ([]*model.Shard, error) {
 // 并把订单置为 expired。返回回收的订单数与分片数。
 //
 // 释放是幂等的：已 expired 的订单不会被重复处理。
+// ReleaseOrder 释放单个订单：删除其全部分片、退回节点已用容量，并把订单置为 expired。
+// 既用于到期回收，也用于下单分配失败时的回滚——避免一张未交付的订单继续占用租户配额。
+// 返回释放的分片数量。
+func (sc *Scheduler) ReleaseOrder(orderID string) (int, error) {
+	o, err := sc.store.GetOrder(orderID)
+	if err != nil {
+		return 0, err
+	}
+	if o == nil {
+		return 0, nil
+	}
+	shards, err := sc.store.ListShardsByOrder(orderID)
+	if err != nil {
+		return 0, err
+	}
+	released := 0
+	for _, sh := range shards {
+		// 退回节点已用容量（不低零，避免与 Agent 上报的实际占用冲突）。
+		if n, gerr := sc.store.GetNode(sh.NodeID); gerr == nil && n != nil {
+			if n.UsedBytes >= sh.Bytes {
+				n.UsedBytes -= sh.Bytes
+			} else {
+				n.UsedBytes = 0
+			}
+			if uerr := sc.store.UpsertNode(n); uerr != nil {
+				return released, uerr
+			}
+		}
+		if derr := sc.store.DeleteShard(sh.ID); derr != nil {
+			return released, derr
+		}
+		released++
+	}
+	o.Status = model.OrderExpired
+	if uerr := sc.store.UpsertOrder(o); uerr != nil {
+		return released, uerr
+	}
+	return released, nil
+}
+
 func (sc *Scheduler) ReleaseExpired(now time.Time) (int, int, error) {
 	orders, err := sc.store.ListOrders()
 	if err != nil {
@@ -106,30 +146,10 @@ func (sc *Scheduler) ReleaseExpired(now time.Time) (int, int, error) {
 		if o.Status == model.OrderExpired || o.ExpireAt.IsZero() || now.Before(o.ExpireAt) {
 			continue
 		}
-		shards, serr := sc.store.ListShardsByOrder(o.ID)
-		if serr != nil {
-			return releasedOrders, releasedShards, serr
-		}
-		for _, sh := range shards {
-			// 退回节点已用容量（不低零，避免与 Agent 上报的实际占用冲突）。
-			if n, gerr := sc.store.GetNode(sh.NodeID); gerr == nil && n != nil {
-				if n.UsedBytes >= sh.Bytes {
-					n.UsedBytes -= sh.Bytes
-				} else {
-					n.UsedBytes = 0
-				}
-				if uerr := sc.store.UpsertNode(n); uerr != nil {
-					return releasedOrders, releasedShards, uerr
-				}
-			}
-			if derr := sc.store.DeleteShard(sh.ID); derr != nil {
-				return releasedOrders, releasedShards, derr
-			}
-			releasedShards++
-		}
-		o.Status = model.OrderExpired
-		if uerr := sc.store.UpsertOrder(o); uerr != nil {
-			return releasedOrders, releasedShards, uerr
+		n, rerr := sc.ReleaseOrder(o.ID)
+		releasedShards += n
+		if rerr != nil {
+			return releasedOrders, releasedShards, rerr
 		}
 		releasedOrders++
 	}

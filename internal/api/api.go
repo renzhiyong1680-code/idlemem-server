@@ -93,6 +93,10 @@ func (s *Server) routes() {
 	// 供给端自助：单节点承载用量与收益
 	s.mux.HandleFunc("GET /api/v1/nodes/{id}/earnings", s.handleNodeEarnings)
 
+	// 备份与恢复（控制面元数据）
+	s.mux.HandleFunc("GET /api/v1/backup", s.handleBackupExport)
+	s.mux.HandleFunc("POST /api/v1/backup/restore", s.handleBackupRestore)
+
 	// 健康检查与概览
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -319,8 +323,13 @@ func (s *Server) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 
 	shards, err := s.scheduler.PlaceOrder(o)
 	if err != nil {
-		// 分配失败：订单保留但无分片，调用方稍后重试。
-		writeError(w, http.StatusServiceUnavailable, err.Error())
+		// 分配失败：回滚这张订单（置 expired 并清掉可能写入的分片），
+		// 否则一张没有交付的订单会继续占用租户配额，客户重试还会叠出多张。
+		if n, rerr := s.scheduler.ReleaseOrder(o.ID); rerr != nil {
+			s.logger.Printf("api: rollback order %s failed: %v (released shards=%d)", o.ID, rerr, n)
+		}
+		writeError(w, http.StatusServiceUnavailable,
+			"order "+o.ID+" not activated: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
@@ -684,9 +693,15 @@ func writeError(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})
 }
 
+// newID 生成资源 ID：时间戳 + 4 字节随机后缀。
+// 时间戳单独作唯一键不可靠——Windows 上 time.Now() 精度约 1ms，
+// 同一毫秒内的两次下单会得到同一个 ID 而互相覆盖。
 func newID() string {
+	var b [4]byte
+	_, _ = rand.Read(b[:])
 	return "id-" + time.Now().Format("20060102150405") + "-" +
-		strings.ReplaceAll(time.Now().Format("15.04.05.000000000"), ".", "")
+		strings.ReplaceAll(time.Now().Format("15.04.05.000000000"), ".", "") + "-" +
+		hex.EncodeToString(b[:])
 }
 
 // randomToken 生成 16 字节随机 token（hex 32 字符）。

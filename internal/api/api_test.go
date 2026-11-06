@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -36,6 +37,67 @@ func newTestServer(t *testing.T) *httptest.Server {
 	return ts
 }
 
+func TestCreateOrderRollsBackWhenNoNodes(t *testing.T) {
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	reg := node.New(st, 30*time.Second, time.Hour)
+	sch := scheduler.New(st, reg, 1)
+	srv := New(st, reg, sch, nil, billing.Price{}, log.New(io.Discard, "", 0))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/api/v1/tenants", "application/json",
+		strings.NewReader(`{"name":"acme","quota_bytes":1073741824}`))
+	if err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	var ten model.Tenant
+	if err := json.NewDecoder(resp.Body).Decode(&ten); err != nil {
+		t.Fatalf("decode tenant: %v", err)
+	}
+	resp.Body.Close()
+
+	orderBody := fmt.Sprintf(`{"tenant_id":%q,"capacity_bytes":1073741824,"replicas":1}`, ten.ID)
+	for i := 0; i < 2; i++ {
+		r, err := http.Post(ts.URL+"/api/v1/orders", "application/json", strings.NewReader(orderBody))
+		if err != nil {
+			t.Fatalf("create order: %v", err)
+		}
+		msg, _ := io.ReadAll(r.Body)
+		r.Body.Close()
+		// 没有在线节点时必须是 503（而不是 409 quota exceeded）——
+		// 说明上一张订单已经被回滚，没有继续占用租户配额。
+		if r.StatusCode != http.StatusServiceUnavailable {
+			t.Fatalf("attempt %d: want 503, got %d %s", i+1, r.StatusCode, strings.TrimSpace(string(msg)))
+		}
+	}
+
+	orders, err := st.ListOrders()
+	if err != nil {
+		t.Fatalf("list orders: %v", err)
+	}
+	if len(orders) != 2 {
+		t.Fatalf("want 2 rolled-back order records, got %d", len(orders))
+	}
+	for _, o := range orders {
+		if o.Status != model.OrderExpired {
+			t.Fatalf("order %s should be expired after rollback, got %s", o.ID, o.Status)
+		}
+	}
+	shards, err := st.ListShards()
+	if err != nil {
+		t.Fatalf("list shards: %v", err)
+	}
+	if len(shards) != 0 {
+		t.Fatalf("no shard should be left behind, got %d", len(shards))
+	}
+}
+
+// TestAuthTokens 校验令牌。空的 admin/node 令牌表示不校验。
 func TestAuthTokens(t *testing.T) {
 	st, err := store.Open(":memory:")
 	if err != nil {

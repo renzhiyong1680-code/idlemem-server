@@ -522,3 +522,17 @@ func (s *Store) ListInvoices() ([][]byte, error) {
 	})
 	return out, err
 }
+
+// ListInvoiceMap 返回 期账单 ID → 原始 JSON，供备份导出使用（需保留 ID 才能原样恢复）。
+func (s *Store) ListInvoiceMap() (map[string][]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string][]byte)
+	err := s.db.View(func(tx *buntdb.Tx) error {
+		return tx.AscendKeys(nsInvoice+"*", func(k, v string) bool {
+			out[strings.TrimPrefix(k, nsInvoice)] = []byte(v)
+			return true
+		})
+	})
+	return out, err
+}

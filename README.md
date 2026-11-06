@@ -113,6 +113,10 @@ curl -X POST http://127.0.0.1:8080/api/v1/orders \
 
 回收日志：`[server] orders expired: 1 (shards released: 1)`。
 
+分配失败会自动回滚：没有可用节点时下单返回 `503 order <id> not activated: scheduler: no available nodes`，
+同时把这张订单置为 `expired` 并清掉可能已写入的分片，**不会让一张没交付的订单继续占用租户配额**——
+否则客户重试会在配额上叠出多份占用。
+
 ### 第四步：用标准 Redis 客户端访问缓存
 
 ```bash
@@ -467,6 +471,8 @@ CLI -server http://127.0.0.1:8080 -admin-token $ADMIN_TOKEN tenant create -name 
 | `node list` / `node earnings <id>` | 节点容量、承载用量与收益 |
 | `billing summary` / `billing settle` / `billing invoices` | 计费总览、出账一期、历史期账单 |
 | `billing export -o 对账.csv` | 对账明细导出（UTF-8 BOM，Excel 直接打开） |
+| `backup export [-o 备份.json]` | 导出控制面元数据备份 |
+| `backup restore -f 备份.json` | 从备份恢复（Upsert，不删现有记录） |
 | `kv -addr <host:port> -token <租户token> set <key> <value> [-ttl 60s]` | 直接在网关写缓存 |
 | `kv ... get <key>` / `kv ... del <key>` | 读 / 删 |
 
@@ -477,6 +483,30 @@ CLI -server http://127.0.0.1:8080 -admin-token $ADMIN_TOKEN tenant create -name 
 - `kv set` 的值可写 `-` 从 stdin 读取，适合管道；
 - 命令输出为格式化 JSON，可直接管道给 `jq`；
 - `-admin-token` 也可用环境变量 `XIANCUN_ADMIN_TOKEN`，避免命令历史泄漏令牌。
+
+## 备份与恢复
+
+控制面元数据支持一次性导出为单个 JSON，用于灾难重建、跨环境搬移和回归演练：
+
+```bash
+# 导出（写文件；不给 -o 时自动命名 xiancun-backup-<时间戳>.json）
+xiancun-cli -server http://127.0.0.1:8080 -admin-token $ADMIN_TOKEN backup export -o backup.json
+
+# 恢复（Upsert 语义：只新增或覆盖，不删除现有记录）
+xiancun-cli -server http://127.0.0.1:8081 -admin-token $ADMIN_TOKEN backup restore -f backup.json
+```
+
+对应 REST 接口：`GET /api/v1/backup`、`POST /api/v1/backup/restore`（管理面令牌）。
+
+覆盖范围：节点、租户、订单、分片、三档计量累计、账期结算水位、期账单。不包含：
+
+- 网关本地缓存与节点上的 KV 数据——缓存本身是 Best-Effort 语义，恢复后由 Agent 侧 TTL/淘汰自然收敛；
+- 节点在线状态——恢复后节点在下次心跳时重新变 online。
+
+注意两点：
+
+- 记录 `format` 字段为 `1`，格式不符时拒绝恢复（避免半旧半新导致计费口径错乱）；
+- 重复执行恢复是幂等的，可以在演练中反复跑。
 
 ## 容量与写入约束
 
