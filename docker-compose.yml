@@ -1,0 +1,53 @@
+# XianCun Cloud local stack: control plane + one agent.
+#
+#   docker compose up -d --build
+#   docker compose logs -f server
+#   docker compose down          # keep ./data
+#   docker compose down -v       # wipe volumes
+#
+# Tokens are read from the environment. Change them before exposing the ports.
+# README "一键起步" explains what to do after `up`.
+
+services:
+  server:
+    build:
+      context: .
+      target: server
+      args:
+        CORE_VERSION: v0.1.1
+    image: xiancun/server:0.1.1
+    container_name: xiancun-server
+    environment:
+      ADMIN_TOKEN: "${ADMIN_TOKEN:-dev-admin-token-change-me}"
+      NODE_TOKEN: "${NODE_TOKEN:-dev-node-token-change-me}"
+    ports:
+      - "8080:8080"   # REST API
+      - "6379:6379"   # Redis protocol gateway
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  agent:
+    build:
+      context: .
+      target: agent
+      args:
+        CORE_VERSION: v0.1.1
+    image: xiancun/agent:0.1.1
+    container_name: xiancun-agent
+    environment:
+      SERVER: "http://server:8080"
+      NODE_TOKEN: "${NODE_TOKEN:-dev-node-token-change-me}"
+      KV_ADDR: ":16380"
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      - "16380:16380"  # agent KV, reachable from the gateway
+    restart: unless-stopped

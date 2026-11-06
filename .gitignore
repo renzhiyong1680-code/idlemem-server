@@ -10,6 +10,9 @@ dist/
 # 本地配置
 config.json
 
+# 一键试跑目录（含二进制、db、日志、pid）
+quickstart/
+
 # IDE
 .idea/
 .vscode/

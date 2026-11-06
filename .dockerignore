@@ -1,0 +1,12 @@
+.git
+.gitignore
+bin/
+dist/
+quickstart/
+data/
+*.db
+*.log
+*.exe
+config.json
+.idea/
+.vscode/

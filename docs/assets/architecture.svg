@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-label="闲存云三仓架构图">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#64748b"/>
+    </marker>
+    <style>
+      .title { font-family: 'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif; font-size: 16px; font-weight: 600; fill: #0f172a; }
+      .sub   { font-family: 'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif; font-size: 15px; font-weight: 600; fill: #0f172a; }
+      .h     { font-family: 'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif; font-size: 14px; font-weight: 600; fill: #1e293b; }
+      .t     { font-family: 'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif; font-size: 12px; fill: #475569; }
+      .small { font-family: 'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif; font-size: 11px; fill: #64748b; }
+      .lbl   { font-family: 'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif; font-size: 11px; fill: #334155; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="620" fill="#ffffff"/>
+
+  <!-- 企业客户 -->
+  <rect x="40" y="205" width="200" height="112" rx="8" fill="#fff7ed" stroke="#fdba74" stroke-width="1.4"/>
+  <text x="140" y="240" text-anchor="middle" class="sub">企业客户</text>
+  <text x="140" y="266" text-anchor="middle" class="t">redis-cli · go-redis</text>
+  <text x="140" y="288" text-anchor="middle" class="t">任意 Redis 客户端</text>
+
+  <!-- 客户 -> 网关 -->
+  <line x1="240" y1="261" x2="396" y2="261" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="318" y="238" text-anchor="middle" class="lbl">Redis 协议 :6379</text>
+  <text x="318" y="284" text-anchor="middle" class="lbl">AUTH 租户 Token</text>
+
+  <!-- idlemem-server 大框 -->
+  <rect x="400" y="105" width="392" height="416" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.4"/>
+  <text x="596" y="138" text-anchor="middle" class="title">idlemem-server · 调度控制面</text>
+
+  <!-- REST API -->
+  <rect x="420" y="156" width="352" height="66" rx="6" fill="#ecfdf5" stroke="#86efac" stroke-width="1.2"/>
+  <text x="596" y="182" text-anchor="middle" class="h">REST 管理 API　:8080</text>
+  <text x="596" y="204" text-anchor="middle" class="t">节点注册 / 租户 / 订单 / 计费</text>
+
+  <!-- 网关 -->
+  <rect x="420" y="234" width="352" height="66" rx="6" fill="#e0f2fe" stroke="#7dd3fc" stroke-width="1.2"/>
+  <text x="596" y="260" text-anchor="middle" class="h">Redis 协议网关　:6379</text>
+  <text x="596" y="282" text-anchor="middle" class="t">租户隔离 · 限流 · 本地缓存</text>
+
+  <!-- 调度器 -->
+  <rect x="420" y="312" width="352" height="58" rx="6" fill="#fef3c7" stroke="#fcd34d" stroke-width="1.2"/>
+  <text x="596" y="336" text-anchor="middle" class="h">调度器 Scheduler</text>
+  <text x="596" y="358" text-anchor="middle" class="t">节点信誉 · 分片分配 · 掉线自愈</text>
+
+  <!-- 存储 -->
+  <rect x="420" y="382" width="352" height="52" rx="6" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2"/>
+  <text x="596" y="406" text-anchor="middle" class="h">持久化 buntdb（嵌入式 KV）</text>
+  <text x="596" y="426" text-anchor="middle" class="t">节点 / 租户 / 订单 / 分片</text>
+
+  <text x="596" y="468" text-anchor="middle" class="small">MVP 单实例 · 元数据单文件 · 未做多副本</text>
+
+  <!-- Agent 组 -->
+  <rect x="890" y="145" width="270" height="346" rx="10" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.4"/>
+  <text x="1025" y="174" text-anchor="middle" class="sub">Agent 节点</text>
+  <text x="1025" y="196" text-anchor="middle" class="t">贡献闲置内存（idlemem-core）</text>
+
+  <rect x="906" y="212" width="238" height="64" rx="6" fill="#ffffff" stroke="#bfdbfe" stroke-width="1.1"/>
+  <text x="1025" y="235" text-anchor="middle" class="h">agent-1</text>
+  <text x="1025" y="257" text-anchor="middle" class="t">KV :16380 · 缓存语义</text>
+
+  <rect x="906" y="286" width="238" height="64" rx="6" fill="#ffffff" stroke="#bfdbfe" stroke-width="1.1"/>
+  <text x="1025" y="309" text-anchor="middle" class="h">agent-2</text>
+  <text x="1025" y="331" text-anchor="middle" class="t">KV :16380 · 缓存语义</text>
+
+  <rect x="906" y="360" width="238" height="64" rx="6" fill="#ffffff" stroke="#bfdbfe" stroke-width="1.1"/>
+  <text x="1025" y="383" text-anchor="middle" class="h">agent-N</text>
+  <text x="1025" y="405" text-anchor="middle" class="t">可继续加入，按心跳纳入调度</text>
+
+  <!-- 心跳上行 -->
+  <line x1="792" y1="200" x2="886" y2="200" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="839" y="190" text-anchor="middle" class="small">心跳</text>
+
+  <!-- 数据下行 -->
+  <line x1="886" y1="446" x2="792" y2="446" stroke="#64748b" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+  <text x="839" y="436" text-anchor="middle" class="small">写转发</text>
+  <text x="839" y="466" text-anchor="middle" class="small">miss 回源</text>
+
+  <!-- desktop -->
+  <rect x="40" y="380" width="200" height="132" rx="8" fill="#f0fdf4" stroke="#86efac" stroke-width="1.4"/>
+  <text x="140" y="410" text-anchor="middle" class="h">idlemem-desktop</text>
+  <text x="140" y="434" text-anchor="middle" class="t">菜单栏 / 系统托盘</text>
+  <text x="140" y="456" text-anchor="middle" class="t">一键贡献本机内存</text>
+  <text x="140" y="484" text-anchor="middle" class="small">启动后即成为上面一个节点</text>
+  <text x="140" y="502" text-anchor="middle" class="small">Windows · macOS</text>
+</svg>

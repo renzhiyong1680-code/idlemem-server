@@ -10,29 +10,9 @@
 
 ## 架构
 
-```
-企业客户 (redis-cli / go-redis / 任意 Redis 客户端)
-        │  Redis 协议 (AUTH 租户 Token)
-        ▼
-┌─────────────────┐    ┌──────────────────────────────────┐
-│  REST 管理 API  │    │   Redis 协议网关 (redcon)        │
-│  :8080          │    │   :6379                           │
-│ 节点注册/心跳    │    │  租户隔离 · 键空间隔离 · 限流    │
-│ 租户/订单管理    │    │  本地缓存 + 按分片转发到节点     │
-└────────┬────────┘    └────────────────┬─────────────────┘
-         │                              │
-         ▼                              ▼
-┌───────────────────────────────────────────────────────────┐
-│  调度器 Scheduler      ┌─────────────┐   Agent 节点       │
-│   节点信誉分            │  KV 数据面   │   (idlemem-core)   │
-│   订单分片分配          │  转发+回源   │   Redis 协议端口   │
-│   掉线检测 → 自愈迁移   └──────┬──────┘   :16380            │
-└──────────────┬────────────────┴────────────┘
-               ▼
-┌───────────────────────────────────────────────────────────┐
-│  持久化存储 (buntdb 嵌入式 KV)  节点 / 租户 / 订单 / 分片  │
-└───────────────────────────────────────────────────────────┘
-```
+![闲存云三仓架构](docs/assets/architecture.svg)
+
+一次请求的走向：企业客户用任意 Redis 客户端连网关（`:6379`）并 `AUTH` 租户 Token → 控制面把订单容量切成小分片、按节点信誉分配 → Agent 把闲置内存作为带 TTL 的 KV 提供（`:16380`）→ 网关写入时转发到所有在线分片节点，本地 miss 时回源。
 
 ### KV 数据面（网关 → 节点转发）
 
@@ -45,7 +25,51 @@
 - 节点地址来自 Agent 心跳上报的 `kv_addr`（节点 `KVAddr` 字段）；
 - 节点全部不可达时，命令仍基于本地缓存正常服务（Best-Effort），转发失败记日志。
 
-## 快速开始
+## 快速起步
+
+按门槛从低到高，任选一种。四种方式起来的是同一套东西：控制面 + 一个 Agent + demo 租户 + demo 订单。
+
+### 方式一：Windows 一条命令（不需要 Go，不需要 Docker）
+
+```powershell
+git clone https://github.com/renzhiyong1680-code/idlemem-server.git
+cd idlemem-server
+powershell -ExecutionPolicy Bypass -File scripts\quickstart.ps1
+```
+
+脚本自动下载 `v0.1.1` 的 `idlemem-server` 与 `xiancun-agent` 二进制、生成 admin / node 令牌、写好配置、启动控制面与一个节点、创建 demo 租户和 2 GB 订单，最后打印可直接粘贴的 `redis-cli` 命令。所有产物落在 `quickstart\`，停止用 `powershell -ExecutionPolicy Bypass -File scripts\quickstart.ps1 -Stop`。
+
+实测输出（Windows 11 + PowerShell 5.1）：
+
+```
+api http://127.0.0.1:8080 ready
+agent online
+tenant id-...   order ... capacity 2 GB
+nodes 1 online / 1 total
+```
+
+### 方式二：Linux / macOS
+
+```bash
+git clone https://github.com/renzhiyong1680-code/idlemem-server.git
+cd idlemem-server
+./scripts/quickstart.sh
+```
+
+流程与 Windows 版一致，二进制按 `uname` 自动选平台。这个脚本没有进 CI（Windows 版是实测过的），第一次执行若失败，先确认 `github.com` 能下载。
+
+### 方式三：Docker Compose
+
+```bash
+docker compose up -d --build
+docker compose logs -f server
+```
+
+控制面与一个 Agent 各一个容器，共用 `./data` 卷。默认令牌写在 `docker-compose.yml` 里（`dev-admin-token-change-me` / `dev-node-token-change-me`），**对外暴露端口前必须改掉**。镜像分 `server` / `agent` 两个 target，Agent 从 `go.mod` 锁定的 core 版本构建，两者版本不会错配。
+
+> Docker 路径未在开发机上验证（那台机器没装 Docker），构建阶段需要 `github.com` 与 `goproxy.io` 可达。
+
+### 方式四：从源码构建
 
 前置：Go 1.27+（以 `go.mod` 里的 `go` 指令为准）。
 
@@ -54,7 +78,7 @@ git clone https://github.com/renzhiyong1680-code/idlemem-server.git
 cd idlemem-server
 ```
 
-核心库按版本号从模块代理拉取（`github.com/renzhiyong1680-code/idlemem-core v0.1.0`），
+核心库按版本号从模块代理拉取（`github.com/renzhiyong1680-code/idlemem-core v0.1.1`），
 单独检出本仓库即可编译，不需要把两个仓库放在同级目录。
 
 ```bash

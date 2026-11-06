@@ -9,10 +9,16 @@
 - `CLA.md`：贡献者许可协议（中英双语十节），贡献者保留著作权，仅授予项目方在开源与商业授权两种模式下的使用许可
 - `CONTRIBUTING.md`、`SECURITY.md`、`.github/ISSUE_TEMPLATE/`：贡献流程、漏洞报告通道与 Issue 模板
 - README 顶部增加三仓导航与项目介绍入口
+- `scripts/quickstart.ps1`：Windows 一条命令起整套本地环境（下载 `v0.1.1` 二进制 → 生成令牌 → 起控制面与一个 Agent → 建 demo 租户与订单 → 打印 `redis-cli` 用法），`-Stop` 可完整回收
+- `scripts/quickstart.sh`：Linux / macOS 的同流程版本
+- `Dockerfile`（`server` / `agent` 两个 target）、`docker-compose.yml`、`scripts/docker-*.sh`：容器化起步，Agent 按 `go.mod` 锁定的 core 版本构建
+- `docs/assets/architecture.svg`：三仓协作架构图，README 的「架构」段改为引用该图
 
 ### 变更
 
 - 核心库依赖由 `idlemem-core v0.1.0` 升级为 `v0.1.1`（两版代码一致，仅许可证变更）
+- README「快速开始」重写为「快速起步」，按门槛给出四种方式（一条命令 / Linux 脚本 / Docker Compose / 源码构建）
+- README 中核心库版本表述由 `v0.1.0` 更正为 `v0.1.1`
 
 ### 修复
 
