@@ -575,6 +575,15 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
 节点全掉线怎么查、客户写入报 `capacity exceeded` 怎么定位、账单对不上先看哪一档计量、
 误操作后怎么用备份恢复。
 
+## 持续集成
+
+`.github/workflows/ci.yml` 分两档：
+
+- **每次提交**：`go vet` + `go test ./...` + `go build ./...`。因为 `go.mod` 里 `replace` 指向 `../idlemem-core`，工作流会把两个仓库检出到同级目录（`src/idlemem-server` 与 `src/idlemem-core`），否则构建直接失败；
+- **打 tag（`v*`）**：交叉编译 server / cli / agent × 五个平台共 15 个产物，生成 `SHA256SUMS` 并作为 artifact 上传。校验文件本身不参与哈希，避免自引用。
+
+`idlemem-core` 仓库有一套更轻的 `ci.yml`：`vet` + `test` + agent 的五平台交叉编译，用来守住"核心库不含平台相关代码"这条底线。
+
 ## 目录结构
 
 ```

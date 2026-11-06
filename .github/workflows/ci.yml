@@ -1,0 +1,101 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # idlemem-server 的 go.mod 里有 replace 指向 ../idlemem-core，
+      # 所以两个仓库必须放到同级目录，否则构建直接失败。
+      - name: checkout server
+        uses: actions/checkout@v4
+        with:
+          path: src/idlemem-server
+      - name: checkout core
+        uses: actions/checkout@v4
+        with:
+          repository: xiancuncloud/idlemem-core
+          path: src/idlemem-core
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/idlemem-server/go.mod
+          cache-dependency-path: src/idlemem-server/go.sum
+
+      - name: vet
+        working-directory: src/idlemem-server
+        run: go vet ./...
+
+      - name: test
+        working-directory: src/idlemem-server
+        run: go test ./... -count=1
+
+      - name: build
+        working-directory: src/idlemem-server
+        run: go build ./...
+
+  release:
+    # 只在打 tag 时出包，日常提交不产生产物。
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout server
+        uses: actions/checkout@v4
+        with:
+          path: src/idlemem-server
+      - name: checkout core
+        uses: actions/checkout@v4
+        with:
+          repository: xiancuncloud/idlemem-core
+          path: src/idlemem-core
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/idlemem-server/go.mod
+          cache-dependency-path: src/idlemem-server/go.sum
+
+      - name: cross compile and checksum
+        working-directory: src/idlemem-server
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          OUT="dist"
+          mkdir -p "$OUT"
+
+          build() {
+            comp="$1"; pkg="$2"; os="$3"; arch="$4"
+            ext=""
+            if [ "$os" = "windows" ]; then ext=".exe"; fi
+            name="${comp}_${VERSION}_${os}_${arch}${ext}"
+            echo "building $name"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+              go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "$OUT/$name" "$pkg"
+          }
+
+          # 三个程序 × 五个平台 = 15 个产物
+          for target in linux_amd64 linux_arm64 windows_amd64 darwin_amd64 darwin_arm64; do
+            os="${target%%_*}"
+            arch="${target##*_}"
+            build server ./cmd/server "$os" "$arch"
+            build cli ./cmd/xiancun-cli "$os" "$arch"
+            build agent ../idlemem-core/cmd/xiancun-agent "$os" "$arch"
+          done
+
+          cd "$OUT"
+          # 先排除校验文件本身，否则 sha256sum 会把刚创建的空 SHA256SUMS 也算进去
+          sha256sum $(ls -1 | grep -vx SHA256SUMS) > SHA256SUMS
+          echo "=== artifacts"
+          ls -1
+          echo "=== checksums"
+          cat SHA256SUMS
+
+      - name: upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiancun-${{ github.ref_name }}
+          path: src/idlemem-server/dist
