@@ -441,23 +441,59 @@ scrape_configs:
 
 健康检查用轻量端点：`GET /healthz` → `{"status":"ok"}`，适合容器/K8s liveness probe。
 
+## 命令行工具（xiancun-cli）
+
+除了 curl，平台还提供一个命令行工具，覆盖客户与运维的全部日常操作：
+
+```bash
+go build -o bin/xiancun-cli ./cmd/xiancun-cli
+
+# 全局参数放在子命令前
+CLI=./bin/xiancun-cli
+CLI -server http://127.0.0.1:8080 -admin-token $ADMIN_TOKEN tenant create -name acme -quota 10G
+```
+
+| 命令 | 作用 |
+|---|---|
+| `tenant create -name <名字> [-quota 10G]` | 建租户，返回 id 与 token |
+| `tenant list` / `tenant suspend <id>` / `tenant resume <id>` | 租户列表、停服、恢复 |
+| `tenant billing <id>` | 单租户累计/已出账/待结算 |
+| `order create -tenant <id> -capacity 2G [-replicas 1] [-expire 720h]` | 下单购买容量（`-expire` 省略即长期） |
+| `order list` | 订单与状态 |
+| `node list` / `node earnings <id>` | 节点容量、承载用量与收益 |
+| `billing summary` / `billing settle` / `billing invoices` | 计费总览、出账一期、历史期账单 |
+| `billing export -o 对账.csv` | 对账明细导出（UTF-8 BOM，Excel 直接打开） |
+| `kv -addr <host:port> -token <租户token> set <key> <value> [-ttl 60s]` | 直接在网关写缓存 |
+| `kv ... get <key>` / `kv ... del <key>` | 读 / 删 |
+
+细节说明：
+
+- 容量支持 `512M`、`2G`、`1T`（1024 进制），也可直接写字节数；
+- 租期支持 `720h`、`30d` 或纯小时数；
+- `kv set` 的值可写 `-` 从 stdin 读取，适合管道；
+- 命令输出为格式化 JSON，可直接管道给 `jq`；
+- `-admin-token` 也可用环境变量 `XIANCUN_ADMIN_TOKEN`，避免命令历史泄漏令牌。
+
 ## 目录结构
 
 ```
 idlemem-server/
 ├── cmd/server/            # 主入口（装配 + 后台扫描循环 + 计量）
+├── cmd/xiancun-cli/       # 命令行工具（客户/运维日常操作）
 ├── internal/
 │   ├── config/            # 配置加载
 │   ├── model/             # 数据模型（节点/租户/订单/分片/计量）
 │   ├── store/             # buntdb 持久化层
 │   ├── node/              # 节点注册表（注册/心跳/超时判定/清扫）
-│   ├── scheduler/         # 调度器（打分/分配/自愈）
+│   ├── scheduler/         # 调度器（打分/分配/自愈/到期回收）
 │   ├── meter/             # GB·h 计量（周期采样累加，计费/结算依据）
 │   ├── billing/           # 计费折算（GB·h → 客户账单/节点结算/佣金）
 │   ├── settle/            # 账期出账（增量结算 + 水位推进 + 期账单归档）
-│   ├── api/               # REST 管理 API
+│   ├── api/               # REST 管理 API（含令牌鉴权）
 │   └── gateway/           # Redis 协议网关（redcon）+ 节点转发（forward.go）
-├── examples/client/       # 企业客户接入示例（零依赖 RESP 客户端）
+├── client/                # 官方 Go SDK（企业应用接入）
+├── examples/client/       # 零依赖 RESP 客户端示例
+├── examples/sdk/          # 官方 SDK 接入示例
 └── go.mod
 ```
 
