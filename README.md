@@ -561,6 +561,20 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
 - 服务器启动日志同样打印版本，便于对齐线上实际版本；
 - 托盘程序（`xiancun-tray`）依赖 CGO 与平台 GUI，需在目标平台上单独构建。
 
+## 日常巡检与故障处理
+
+```powershell
+# 每天一跑：控制面存活、节点在线率、订单到期、租户停服、计量指标、备份新鲜度
+.\scripts\healthcheck.ps1 -Server http://127.0.0.1:8080 -AdminToken $env:XIANCUN_ADMIN_TOKEN -BackupDir D:\backup
+```
+
+退出码 `0` 全部正常、`1` 有需关注项、`2` 有失败项，可以直接接进 cron 或计划任务做告警。
+控制面不可用时脚本只跑一条检查就退出，不会在后面刷一堆连带错误。
+
+故障处理、发布流程和几个必须知道的口径边界写在 [`docs/runbook.md`](docs/runbook.md)：
+节点全掉线怎么查、客户写入报 `capacity exceeded` 怎么定位、账单对不上先看哪一档计量、
+误操作后怎么用备份恢复。
+
 ## 目录结构
 
 ```
