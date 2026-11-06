@@ -3,6 +3,8 @@ name: ci
 on:
   push:
     branches: [master, main]
+    # 出包 job 由 tag 触发，必须显式列出 tags，否则推 tag 不会启动工作流
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
