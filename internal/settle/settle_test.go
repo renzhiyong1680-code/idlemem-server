@@ -108,6 +108,67 @@ func TestSettle_ListAndGet(t *testing.T) {
 	}
 }
 
+// TestTenantSummary 验证自助视图：累计 / 已出账 / 待结算三段口径。
+func TestTenantSummary(t *testing.T) {
+	s, st := newTestSettler(t)
+	putUsage(t, st, model.UsageScopeTenant, "t1", 1000)
+
+	if _, err := s.Settle(time.Now()); err != nil {
+		t.Fatalf("settle: %v", err)
+	}
+	// 出账后又有新增用量：累计 1300，已出账 1000，待结算 300。
+	putUsage(t, st, model.UsageScopeTenant, "t1", 1300)
+
+	sum, err := s.TenantSummary("t1")
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if diff(sum.TotalGBHours, 1300) > 1e-9 {
+		t.Fatalf("total = %v, want 1300", sum.TotalGBHours)
+	}
+	if diff(sum.InvoicedGBHours, 1000) > 1e-9 {
+		t.Fatalf("invoiced = %v, want 1000", sum.InvoicedGBHours)
+	}
+	if diff(sum.PendingGBHours, 300) > 1e-9 {
+		t.Fatalf("pending = %v, want 300", sum.PendingGBHours)
+	}
+	if diff(sum.PendingAmountCNY, 0.12) > 1e-9 {
+		t.Fatalf("pending amount = %v, want 0.12", sum.PendingAmountCNY)
+	}
+	if sum.InvoiceCount != 1 {
+		t.Fatalf("invoice count = %d, want 1", sum.InvoiceCount)
+	}
+
+	// 未知租户返回零值视图，不报错。
+	empty, err := s.TenantSummary("t-none")
+	if err != nil || empty == nil || empty.TotalGBHours != 0 {
+		t.Fatalf("empty summary = %+v, err %v", empty, err)
+	}
+}
+
+// TestExportRows 验证对账导出的行数与合计。
+func TestExportRows(t *testing.T) {
+	s, st := newTestSettler(t)
+	putUsage(t, st, model.UsageScopeTenant, "t1", 1000)
+	putUsage(t, st, model.UsageScopeTenant, "t2", 200)
+	putUsage(t, st, model.UsageScopeNodeUsed, "n1", 1200)
+
+	rows, totals, err := s.ExportRows()
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("rows = %d, want 3", len(rows))
+	}
+	// 收入 1200×0.0004 = 0.48；支出 1200×0.00032 = 0.384。
+	if diff(totals.AmountCNY, 0.48+0.384) > 1e-9 {
+		t.Fatalf("total amount = %v, want 0.864", totals.AmountCNY)
+	}
+	if diff(totals.GBHours, 2400) > 1e-9 {
+		t.Fatalf("total gb_hours = %v, want 2400", totals.GBHours)
+	}
+}
+
 func diff(a, b float64) float64 {
 	d := a - b
 	if d < 0 {

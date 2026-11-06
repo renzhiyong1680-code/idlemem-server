@@ -264,6 +264,8 @@ go run ./examples/client -addr 127.0.0.1:6379 -token <tenant-token>
 | POST | `/api/v1/billing/settle` | 出一张期账单：结算「累计用量 − 已结算水位」的增量 |
 | GET | `/api/v1/billing/invoices` | 历史期账单列表（按生成时间升序） |
 | GET | `/api/v1/billing/invoices/{id}` | 单张期账单明细 |
+| GET | `/api/v1/billing/export.csv` | 对账明细导出（客户+节点统一表，带 BOM，Excel 可直接打开） |
+| GET | `/api/v1/tenants/{id}/billing` | 客户自助：某租户累计/已出账/待结算 |
 
 机制：
 
@@ -277,6 +279,24 @@ go run ./examples/client -addr 127.0.0.1:6379 -token <tenant-token>
 curl -X POST http://127.0.0.1:8080/api/v1/billing/settle
 # 查历史
 curl http://127.0.0.1:8080/api/v1/billing/invoices
+```
+
+对账与客户自助：
+
+```bash
+# 财务对账：客户账单 + 节点结算一张表，Excel 直接打开（UTF-8 BOM）
+curl -O http://127.0.0.1:8080/api/v1/billing/export.csv
+# 客户自助：累计用量 / 已出账 / 待结算
+curl http://127.0.0.1:8080/api/v1/tenants/{tenant_id}/billing
+```
+
+CSV 为统一表结构，便于在 Excel 里筛选：
+
+```csv
+type,object_id,gb_hours,unit_price_cny,amount_cny
+tenant,id-20261106112832-...,0.002222,0.000400,0.0000008889
+node,a512c2fde7be0a23,0.002222,0.000320,0.0000007111
+total,rows=2,0.004444,0.000000,0.0000016000
 ```
 
 生产建议：用 cron 每日/每月调用一次 `settle`（例如 `0 2 * * *`），把返回的账单 JSON 归档到对象存储或财务系统。

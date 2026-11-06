@@ -198,6 +198,105 @@ func (s *Settler) Get(id string) (*Invoice, error) {
 	return &v, nil
 }
 
+// TenantSummary 单个租户的自助账单视图：累计用量、已出账部分、待结算部分。
+type TenantSummary struct {
+	TenantID          string        `json:"tenant_id"`
+	Price             billing.Price `json:"price"`
+	TotalGBHours      float64       `json:"total_gb_hours"`      // 累计计量
+	InvoicedGBHours   float64       `json:"invoiced_gb_hours"`   // 已出账
+	PendingGBHours    float64       `json:"pending_gb_hours"`    // 待出账
+	PendingAmountCNY  float64       `json:"pending_amount_cny"`  // 待出账金额
+	InvoicedAmountCNY float64       `json:"invoiced_amount_cny"` // 已出账金额
+	InvoiceCount      int           `json:"invoice_count"`
+}
+
+// TenantSummary 汇总某租户的计费状态，供客户自助查询。
+func (s *Settler) TenantSummary(tenantID string) (*TenantSummary, error) {
+	out := &TenantSummary{TenantID: tenantID, Price: s.price}
+	rec, err := s.store.GetUsage(model.UsageScopeTenant, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if rec != nil {
+		out.TotalGBHours = rec.GBHours
+	}
+
+	invs, err := s.List()
+	if err != nil {
+		return nil, err
+	}
+	for _, inv := range invs {
+		for _, b := range inv.Tenants {
+			if b.TenantID != tenantID {
+				continue
+			}
+			out.InvoicedGBHours += b.GBHours
+			out.InvoicedAmountCNY += b.AmountCNY
+			out.InvoiceCount++
+		}
+	}
+
+	out.PendingGBHours = out.TotalGBHours - out.InvoicedGBHours
+	if out.PendingGBHours < 0 {
+		// 出账与计量的采样时点存在微小差异，钳到 0 避免负账单。
+		out.PendingGBHours = 0
+	}
+	out.PendingAmountCNY = out.PendingGBHours * s.price.CustomerPerGBHour
+	return out, nil
+}
+
+// ExportRow 对账 CSV 的一行（客户账单与节点结算共用同一张表）。
+type ExportRow struct {
+	Type         string  `json:"type"`
+	ObjectID     string  `json:"object_id"`
+	GBHours      float64 `json:"gb_hours"`
+	UnitPriceCNY float64 `json:"unit_price_cny"`
+	AmountCNY    float64 `json:"amount_cny"`
+}
+
+// ExportRows 导出当前累计的对账明细（全部租户 + 全部节点承载），供财务核对。
+func (s *Settler) ExportRows() (rows []ExportRow, totals ExportRow, err error) {
+	tenantUsage, err := s.store.ListUsage(model.UsageScopeTenant)
+	if err != nil {
+		return nil, totals, err
+	}
+	nodeUsed, err := s.store.ListUsage(model.UsageScopeNodeUsed)
+	if err != nil {
+		return nil, totals, err
+	}
+	for _, u := range tenantUsage {
+		if u == nil || u.GBHours <= 0 {
+			continue
+		}
+		rows = append(rows, ExportRow{
+			Type:         "tenant",
+			ObjectID:     u.ID,
+			GBHours:      u.GBHours,
+			UnitPriceCNY: s.price.CustomerPerGBHour,
+			AmountCNY:    u.GBHours * s.price.CustomerPerGBHour,
+		})
+	}
+	for _, u := range nodeUsed {
+		if u == nil || u.GBHours <= 0 {
+			continue
+		}
+		rows = append(rows, ExportRow{
+			Type:         "node",
+			ObjectID:     u.ID,
+			GBHours:      u.GBHours,
+			UnitPriceCNY: s.price.SupplierPerGBHour,
+			AmountCNY:    u.GBHours * s.price.SupplierPerGBHour,
+		})
+	}
+	for _, r := range rows {
+		totals.GBHours += r.GBHours
+		totals.AmountCNY += r.AmountCNY
+	}
+	totals.Type = "total"
+	totals.ObjectID = fmt.Sprintf("rows=%d", len(rows))
+	return rows, totals, nil
+}
+
 func randSuffix() string {
 	b := make([]byte, 3)
 	if _, err := rand.Read(b); err != nil {

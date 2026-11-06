@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -79,6 +80,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/billing/settle", s.handleSettle)
 	s.mux.HandleFunc("GET /api/v1/billing/invoices", s.handleListInvoices)
 	s.mux.HandleFunc("GET /api/v1/billing/invoices/{id}", s.handleGetInvoice)
+	s.mux.HandleFunc("GET /api/v1/billing/export.csv", s.handleExportCSV)
+
+	// 客户自助：单租户计费状态（累计/已出账/待结算）
+	s.mux.HandleFunc("GET /api/v1/tenants/{id}/billing", s.handleTenantBilling)
 
 	// 健康检查与概览
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -404,6 +409,59 @@ func (s *Server) handleGetInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, inv)
+}
+
+// handleExportCSV 导出对账明细（客户账单 + 节点结算，统一表结构），带 BOM 便于 Excel 直接打开。
+func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
+	rows, totals, err := s.settler.ExportRows()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var b strings.Builder
+	b.WriteString("\uFEFF") // UTF-8 BOM：Excel 打开中文表头不乱码
+	b.WriteString("type,object_id,gb_hours,unit_price_cny,amount_cny\n")
+	writeRow := func(row settle.ExportRow) {
+		fmt.Fprintf(&b, "%s,%s,%.6f,%.6f,%.10f\n", row.Type, row.ObjectID, row.GBHours, row.UnitPriceCNY, row.AmountCNY)
+	}
+	for _, row := range rows {
+		writeRow(row)
+	}
+	if len(rows) > 0 {
+		writeRow(totals)
+	}
+
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="xiancun-billing-export.csv"`)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(b.String()))
+}
+
+// handleTenantBilling 客户自助：返回某租户的计量与费用状态（含已出账/待结算）。
+func (s *Server) handleTenantBilling(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	t, err := s.store.GetTenant(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if t == nil {
+		writeError(w, http.StatusNotFound, "tenant not found")
+		return
+	}
+	if s.meter == nil {
+		writeError(w, http.StatusServiceUnavailable, "metering not enabled")
+		return
+	}
+	sum, err := s.settler.TenantSummary(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"tenant":  map[string]any{"id": t.ID, "name": t.Name, "quota_bytes": t.QuotaBytes, "created_at": t.CreatedAt},
+		"billing": sum,
+	})
 }
 
 func clientIP(r *http.Request) string {
