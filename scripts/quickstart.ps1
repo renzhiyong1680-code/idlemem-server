@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   XianCun Cloud (idlemem) one-command local trial.
@@ -7,7 +7,7 @@
   Starts a complete local stack with zero manual steps:
     1. locate (or download) the server and agent binaries of a given release
     2. generate admin/node tokens and write a config file
-    3. start the control plane and one agent, wait until both are ready
+    3. start the control plane and the requested number of agent nodes, wait until both are ready
     4. create a demo tenant and a demo order
     5. print ready-to-paste redis-cli commands
 
@@ -24,7 +24,12 @@
   Redis protocol gateway listen address. Default 127.0.0.1:6379.
 
 .PARAMETER Kv
-  Agent KV listen address. Default 127.0.0.1:16380.
+  Agent KV listen address of the first node. Default 127.0.0.1:16380.
+  With -Nodes N, node i listens on KvPort + i (16380, 16381, 16382 ...).
+
+.PARAMETER Nodes
+  How many agent nodes to start. Default 1. Use 3 or more to try the cluster
+  path: sharding across nodes, replica placement and failover migration.
 
 .PARAMETER Version
   Release tag to download binaries from when none are found locally. Default v0.1.1.
@@ -54,6 +59,7 @@ param(
   [string]$Api = "127.0.0.1:8080",
   [string]$Gateway = "127.0.0.1:6379",
   [string]$Kv = "127.0.0.1:16380",
+  [int]$Nodes = 1,
   [string]$Version = "v0.1.1",
   [switch]$BuildLocal,
   [switch]$Stop,
@@ -87,13 +93,16 @@ function Write-Warn2([string]$Text) { Write-Host ("[warn] " + $Text) -Foreground
 
 function Stop-PidFile([string]$PidFile) {
   if (-not (Test-Path -LiteralPath $PidFile)) { return $false }
-  $procId = (Get-Content -LiteralPath $PidFile -Raw).Trim()
-  if ($procId -match '^\d+$') {
-    try {
-      Stop-Process -Id ([int]$procId) -Force -ErrorAction Stop
-      Write-Info ("stopped pid " + $procId)
-    } catch {
-      Write-Info ("pid " + $procId + " not running")
+  # 一个 pid 文件里可能有多行：-Nodes N 会起 N 个 agent，逐个停
+  foreach ($line in @(Get-Content -LiteralPath $PidFile)) {
+    $procId = $line.Trim()
+    if ($procId -match '^\d+$') {
+      try {
+        Stop-Process -Id ([int]$procId) -Force -ErrorAction Stop
+        Write-Info ("stopped pid " + $procId)
+      } catch {
+        Write-Info ("pid " + $procId + " not running")
+      }
     }
   }
   Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
@@ -147,7 +156,10 @@ New-Item -ItemType Directory -Path $binDir -Force | Out-Null
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 
 if ($Force) {
-  foreach ($p in @($apiPort, $gwPort, $kvPort)) {
+  # 端口清单要覆盖所有 agent 的 KV 端口，否则 -Nodes 3 时只清了第一个
+  $ports = @($apiPort, $gwPort)
+  for ($i = 0; $i -lt $Nodes; $i++) { $ports += ([int]$kvPort + $i) }
+  foreach ($p in $ports) {
     $conns = Get-NetTCPConnection -State Listen -LocalPort ([int]$p) -ErrorAction SilentlyContinue
     foreach ($c in $conns) {
       if ($c.OwningProcess -and $c.OwningProcess -ne $PID) {
@@ -156,6 +168,16 @@ if ($Force) {
       }
     }
     Start-Sleep -Milliseconds 300
+  }
+
+  # -Force 表示要一套干净环境：上一轮的节点记录、订单会让 summary 变成 "3 online / 4 total"，
+  # 把旧元数据库改名留档，而不是直接删掉。
+  $dbPath = Join-Path $WorkDir "idlemem-server.db"
+  if (Test-Path -LiteralPath $dbPath) {
+    $stamp = Get-Date -Format "yyyyMMddHHmmss"
+    $bak = Join-Path $WorkDir ("idlemem-server.db.bak-" + $stamp)
+    Move-Item -LiteralPath $dbPath -Destination $bak -Force
+    Write-Info ("archived previous metadata db -> " + (Split-Path -Leaf $bak))
   }
 }
 
@@ -211,22 +233,35 @@ Set-Content -LiteralPath $serverPidFile -Value $srv.Id -Encoding ascii
 if (-not (Wait-Healthz 25)) { throw ("control plane did not become healthy; see " + $serverLog) }
 Write-Info ("api " + $baseApi + " ready")
 
-Write-Step "starting agent"
-if (-not (Test-PortFree ([int]$kvPort))) { throw ("kv port " + $kvPort + " is busy; re-run with -Force or pick another -Kv") }
-$agt = Start-Process -FilePath $agentExe -ArgumentList @("-server", $baseApi, "-kv", $Kv, "-node-token", $nodeToken) `
-  -WorkingDirectory $WorkDir -RedirectStandardOutput $agentLog -RedirectStandardError ($agentLog + ".err") -WindowStyle Hidden -PassThru
-Set-Content -LiteralPath $agentPidFile -Value $agt.Id -Encoding ascii
+Write-Step ("starting " + $Nodes + " agent node(s)")
+$agentPids = @()
+for ($i = 0; $i -lt $Nodes; $i++) {
+  $thisKvPort = [int]$kvPort + $i
+  $thisKv = $hostOnly + ":" + $thisKvPort
+  if (-not (Test-PortFree $thisKvPort)) { throw ("kv port " + $thisKvPort + " is busy; re-run with -Force or pick another -Kv") }
+  $nodeLog = Join-Path $logDir ("agent_" + $thisKvPort + ".log")
+  # 同一台机器上跑多个 agent 时，默认 node id 由主机名 + MAC 生成，会全部撞成同一个，
+  # 控制面只认到 1 个节点；必须给每个 agent 显式指定独立 id。
+  $a = Start-Process -FilePath $agentExe -ArgumentList @("-server", $baseApi, "-kv", $thisKv, "-id", ("node-" + ($i + 1)), "-node-token", $nodeToken) `
+    -WorkingDirectory $WorkDir -RedirectStandardOutput $nodeLog -RedirectStandardError ($nodeLog + ".err") -WindowStyle Hidden -PassThru
+  $agentPids += $a.Id
+  Write-Info ("agent " + ($i + 1) + "/" + $Nodes + "  kv " + $thisKv + "  pid " + $a.Id)
+}
+Set-Content -LiteralPath $agentPidFile -Value ($agentPids -join "`n") -Encoding ascii
 
-$nodeOnline = $false
+$onlineCount = 0
 for ($i = 0; $i -lt 40; $i++) {
   Start-Sleep -Milliseconds 700
   try {
-    $nodesResp = Invoke-Api "GET" "/api/v1/nodes" $null $adminToken
-    $nodes = @($nodesResp)
-    if ($nodes.Count -gt 0 -and (@($nodes | Where-Object { $_.status -eq "online" }).Count -gt 0)) { $nodeOnline = $true; break }
+    # 注意：不要把这批节点赋值给 $nodes —— PowerShell 变量名不区分大小写，
+    # 会把参数 $Nodes（要起几个节点）覆盖掉，等待条件永远不成立。
+    $nodeListResp = Invoke-Api "GET" "/api/v1/nodes" $null $adminToken
+    $nodeList = @($nodeListResp)
+    $onlineCount = @($nodeList | Where-Object { $_.status -eq "online" }).Count
+    if ($onlineCount -ge $Nodes) { break }
   } catch { }
 }
-if (-not $nodeOnline) { Write-Warn2 ("agent started but no online node reported yet; see " + $agentLog) } else { Write-Info "agent online" }
+if ($onlineCount -lt $Nodes) { Write-Warn2 ("only " + $onlineCount + "/" + $Nodes + " agent(s) online; see " + $agentLog) } else { Write-Info ("all " + $Nodes + " agent(s) online") }
 
 Write-Step "creating demo tenant and order"
 $tenant = Invoke-Api "POST" "/api/v1/tenants" @{ name = "demo-tenant"; quota_bytes = 10737418240 } $adminToken
@@ -248,7 +283,9 @@ Write-Host ""
 Write-Host "XianCun Cloud local trial is up" -ForegroundColor Green
 Write-Host ("  REST API   " + $baseApi)
 Write-Host ("  gateway    " + $Gateway + "   (Redis protocol)")
-Write-Host ("  agent KV   " + $Kv)
+$kvRange = $Kv
+if ($Nodes -gt 1) { $kvRange = $Kv + " .. " + $hostOnly + ":" + ([int]$kvPort + $Nodes - 1) }
+Write-Host ("  agent KV   " + $kvRange + "   (" + $Nodes + " node(s))")
 Write-Host ("  workdir    " + $WorkDir)
 Write-Host ("  admin      " + $adminToken)
 Write-Host ("  tenant     " + $tenant.name + "  token " + $tenant.token)

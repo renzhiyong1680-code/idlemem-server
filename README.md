@@ -39,6 +39,14 @@ powershell -ExecutionPolicy Bypass -File scripts\quickstart.ps1
 
 脚本自动下载 `v0.1.1` 的 `idlemem-server` 与 `xiancun-agent` 二进制、生成 admin / node 令牌、写好配置、启动控制面与一个节点、创建 demo 租户和 2 GB 订单，最后打印可直接粘贴的 `redis-cli` 命令。所有产物落在 `quickstart\`，停止用 `powershell -ExecutionPolicy Bypass -File scripts\quickstart.ps1 -Stop`。
 
+**要跑多节点集群，加 `-Nodes`**：节点 i 的 KV 端口是 16380 + i，脚本会给每个 agent 指定独立 node id（同一台机器上默认 node id 由主机名 + MAC 生成，不指定就会全撞成同一个）。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\quickstart.ps1 -Nodes 3 -Force
+```
+
+起完后 `GET /api/v1/nodes` 应看到 3 个 online 节点、`GET /api/v1/shard` 能看到分片铺到多个节点。验证掉线自愈：`Stop-Process -Id <某个 agent 的 pid>`，再轮询分片状态，看它从 `active` 转 `migrating`、随后回到 `active`。
+
 实测输出（Windows 11 + PowerShell 5.1）：
 
 ```
@@ -287,6 +295,12 @@ curl -H "X-Admin-Token: $ADMIN_TOKEN" http://127.0.0.1:8080/api/v1/tenants
   2. 分片所在节点离线 → 尝试迁移到其他在线节点（`active`）；
   3. 无可用替换节点 → 分片置为 `lost`；
   4. 离线超过 `evict_after` → 节点回收。
+
+实测数字（三节点、双副本订单、杀进程计时）：分片在 **34.3 s** 后于存活节点重新 `active`，其中 30 s 是心跳超时。完整命令与原始输出见 [`docs/掉线自愈验证.md`](docs/掉线自愈验证.md)。注意：迁移只重排分片所有权，**不搬运内存里的键值**，被杀节点上的数据不会自动恢复。
+
+## 性能基准
+
+本机实测的延迟分位、吞吐与自愈耗时见 [`BENCHMARK.md`](BENCHMARK.md)，压测脚本是 `bench/bench.py`（零依赖）与 `bench/failover.py`。已知瓶颈写在里面（网关 20 线程是拐点、并发 50 线程吞吐反降），对外别说成线性扩展。
 
 ## 企业客户接入
 

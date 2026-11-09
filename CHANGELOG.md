@@ -6,6 +6,11 @@
 
 ### 新增
 
+- `bench/bench.py`：零依赖 RESP 压测客户端（延迟分位与多线程吞吐），不需要 `redis-py`
+- `bench/failover.py`：掉线自愈计时脚本，杀节点前后全程轮询分片状态，输出检测/恢复耗时与时间线
+- `BENCHMARK.md`：本机实测的延迟、吞吐、自愈耗时，含环境、原始数字与复现命令
+- `docs/掉线自愈验证.md`：一次真实节点掉线的完整命令、原始输出与已知边界
+- `scripts/quickstart.ps1` 的 `-Nodes N`：一条命令起多节点集群（第 i 个节点用 `16380 + i`，各 agent 独立 node id 与日志）
 - `CLA.md`：贡献者许可协议（中英双语十节），贡献者保留著作权，仅授予项目方在开源与商业授权两种模式下的使用许可
 - `CONTRIBUTING.md`、`SECURITY.md`、`.github/ISSUE_TEMPLATE/`：贡献流程、漏洞报告通道与 Issue 模板
 - README 顶部增加三仓导航与项目介绍入口
@@ -16,12 +21,16 @@
 
 ### 变更
 
+- `quickstart.ps1 -Force` 现在会清掉**所有** agent 的 KV 端口（原来只清第一个，`-Nodes 3` 会被 16381/16382 的残留占住），并把上一轮元数据库归档为 `idlemem-server.db.bak-<时间戳>` 后再起新环境，避免旧节点记录把 `summary` 显示成 `3 online / 4 total`
+- README「快速起步」补多节点用法与自愈验证方法；分片端点统一写作 `/api/v1/shard`（单数）
 - 核心库依赖由 `idlemem-core v0.1.0` 升级为 `v0.1.1`（两版代码一致，仅许可证变更）
 - README「快速开始」重写为「快速起步」，按门槛给出四种方式（一条命令 / Linux 脚本 / Docker Compose / 源码构建）
 - README 中核心库版本表述由 `v0.1.0` 更正为 `v0.1.1`
 
 ### 修复
 
+- `quickstart.ps1` 的等待循环用 `$nodeList` 承接节点数组，但 PowerShell 变量名不区分大小写，原名 `$nodes` 会把参数 `$Nodes`（要起几个节点）覆盖成数组，判断永远不成立，导致三个节点都已在线仍打印 `only 0/3 agent(s) online`
+- 同一台机器起多个 agent 时，默认 node id 由主机名 + MAC 生成，三个 agent 全撞成同一个 id，控制面只认到 1 个节点；现在脚本给每个 agent 显式传 `-id node-i`
 - 出包 job 检出的核心库源码未指定版本，默认取 core 默认分支的最新提交，一旦 core 有新提交而本仓未升级依赖，打出的 `agent` 会与 `server` 版本错配。现在先从 `go.mod` 解析核心库版本，再按该 tag 检出源码
 
 ## [v0.1.1] - 2026-11-06
