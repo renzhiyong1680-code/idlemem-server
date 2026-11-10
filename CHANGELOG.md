@@ -18,6 +18,7 @@
 - `scripts/quickstart.sh`：Linux / macOS 的同流程版本
 - `Dockerfile`（`server` / `agent` 两个 target）、`docker-compose.yml`、`scripts/docker-*.sh`：容器化起步，Agent 按 `go.mod` 锁定的 core 版本构建
 - `docs/assets/architecture.svg`：三仓协作架构图，README 的「架构」段改为引用该图
+- README「架构」段补一句 AI 基站（AI-RAN）场景落位，链接 core 仓的 `ai-ran-architecture.svg`
 
 ### 变更
 

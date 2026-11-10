@@ -50,7 +50,7 @@
   <text x="596" y="406" text-anchor="middle" class="h">持久化 buntdb（嵌入式 KV）</text>
   <text x="596" y="426" text-anchor="middle" class="t">节点 / 租户 / 订单 / 分片</text>
 
-  <text x="596" y="468" text-anchor="middle" class="small">MVP 单实例 · 元数据单文件 · 未做多副本</text>
+  <text x="596" y="468" text-anchor="middle" class="small">控制面单实例 · 元数据单文件 · 订单可指定副本数</text>
 
   <!-- Agent 组 -->
   <rect x="890" y="145" width="270" height="346" rx="10" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.4"/>
@@ -63,11 +63,11 @@
 
   <rect x="906" y="286" width="238" height="64" rx="6" fill="#ffffff" stroke="#bfdbfe" stroke-width="1.1"/>
   <text x="1025" y="309" text-anchor="middle" class="h">agent-2</text>
-  <text x="1025" y="331" text-anchor="middle" class="t">KV :16380 · 缓存语义</text>
+  <text x="1025" y="331" text-anchor="middle" class="t">KV :16381 · 缓存语义</text>
 
   <rect x="906" y="360" width="238" height="64" rx="6" fill="#ffffff" stroke="#bfdbfe" stroke-width="1.1"/>
   <text x="1025" y="383" text-anchor="middle" class="h">agent-N</text>
-  <text x="1025" y="405" text-anchor="middle" class="t">可继续加入，按心跳纳入调度</text>
+  <text x="1025" y="405" text-anchor="middle" class="t">KV :16380+N-1，按心跳纳入调度</text>
 
   <!-- 心跳上行 -->
   <line x1="792" y1="200" x2="886" y2="200" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>

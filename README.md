@@ -14,6 +14,8 @@
 
 一次请求的走向：企业客户用任意 Redis 客户端连网关（`:6379`）并 `AUTH` 租户 Token → 控制面把订单容量切成小分片、按节点信誉分配 → Agent 把闲置内存作为带 TTL 的 KV 提供（`:16380`）→ 网关写入时转发到所有在线分片节点，本地 miss 时回源。
 
+放到具体场景里：这套东西在 **AI 基站（AI-RAN）** 里占的位置是"边缘服务器闲置内存 → 就近缓存层"，落位图与四条边界见 core 仓的 [ai-ran-architecture.svg](https://github.com/renzhiyong1680-code/idlemem-core/blob/master/docs/assets/ai-ran-architecture.svg) 与 [项目介绍 · 第十一节](https://github.com/renzhiyong1680-code/idlemem-core/blob/master/docs/%E9%A1%B9%E7%9B%AE%E4%BB%8B%E7%BB%8D.md)。
+
 ### KV 数据面（网关 → 节点转发）
 
 网关在本地缓存之外，还会把数据**转发到承载分片的 Agent 节点**：
