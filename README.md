@@ -39,7 +39,7 @@ cd idlemem-server
 powershell -ExecutionPolicy Bypass -File scripts\quickstart.ps1
 ```
 
-脚本自动下载 `v0.1.1` 的 `idlemem-server` 与 `xiancun-agent` 二进制、生成 admin / node 令牌、写好配置、启动控制面与一个节点、创建 demo 租户和 2 GB 订单，最后打印可直接粘贴的 `redis-cli` 命令。所有产物落在 `quickstart\`，停止用 `powershell -ExecutionPolicy Bypass -File scripts\quickstart.ps1 -Stop`。
+脚本自动下载 `v0.1.2` 的 `idlemem-server` 与 `xiancun-agent` 二进制、生成 admin / node 令牌、写好配置、启动控制面与一个节点、创建 demo 租户和 2 GB 订单，最后打印可直接粘贴的 `redis-cli` 命令。所有产物落在 `quickstart\`，停止用 `powershell -ExecutionPolicy Bypass -File scripts\quickstart.ps1 -Stop`。
 
 **要跑多节点集群，加 `-Nodes`**：节点 i 的 KV 端口是 16380 + i，脚本会给每个 agent 指定独立 node id（同一台机器上默认 node id 由主机名 + MAC 生成，不指定就会全撞成同一个）。
 
@@ -90,6 +90,9 @@ cd idlemem-server
 
 核心库按版本号从模块代理拉取（`github.com/renzhiyong1680-code/idlemem-core v0.1.1`），
 单独检出本仓库即可编译，不需要把两个仓库放在同级目录。
+
+> `go.mod` 仍锁 `v0.1.1`：`v0.1.2` 与 `v0.1.1` 的 Go 源码完全一致（见两边 CHANGELOG），
+> 锁哪个版本编译出来的二进制等价，因此这里不做无意义的版本追逐。
 
 ```bash
 # 1. 构建

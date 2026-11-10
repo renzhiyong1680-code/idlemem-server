@@ -5,7 +5,7 @@
 # ready-to-paste redis-cli commands.
 #
 # Usage:
-#   ./scripts/quickstart.sh                 # download v0.1.1 binaries, run everything
+#   ./scripts/quickstart.sh                 # download v0.1.2 binaries, run everything
 #   ./scripts/quickstart.sh --stop          # stop the previous run
 #   ./scripts/quickstart.sh --build-local   # use ./bin (or ../idlemem-core/bin) instead of downloading
 #   ./scripts/quickstart.sh --gateway 127.0.0.1:6380 --api 127.0.0.1:8088
@@ -18,7 +18,7 @@ set -eu
 API="127.0.0.1:8080"
 GATEWAY="127.0.0.1:6379"
 KV="127.0.0.1:16380"
-VERSION="v0.1.1"
+VERSION="v0.1.2"
 WORKDIR="$(cd "$(dirname "$0")/.." && pwd)/quickstart"
 BUILD_LOCAL=0
 STOP=0

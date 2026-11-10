@@ -32,7 +32,7 @@
   path: sharding across nodes, replica placement and failover migration.
 
 .PARAMETER Version
-  Release tag to download binaries from when none are found locally. Default v0.1.1.
+  Release tag to download binaries from when none are found locally. Default v0.1.2.
 
 .PARAMETER BuildLocal
   Skip the download and use .\bin\idlemem-server(.exe) and .\bin\xiancun-agent(.exe).
@@ -60,7 +60,7 @@ param(
   [string]$Gateway = "127.0.0.1:6379",
   [string]$Kv = "127.0.0.1:16380",
   [int]$Nodes = 1,
-  [string]$Version = "v0.1.1",
+  [string]$Version = "v0.1.2",
   [switch]$BuildLocal,
   [switch]$Stop,
   [switch]$Force
